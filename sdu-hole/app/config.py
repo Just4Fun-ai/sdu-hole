@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # 验证码
     CODE_EXPIRE_SECONDS: int = 300  # 5分钟
     CODE_LENGTH: int = 6
+    SEND_CODE_MIN_INTERVAL_SECONDS: int = 60  # 同一邮箱最小发送间隔
+    SEND_CODE_IP_WINDOW_SECONDS: int = 600  # IP 限流时间窗
+    SEND_CODE_MAX_PER_IP_WINDOW: int = 20  # 单 IP 时间窗内最多发送次数
+    SEND_CODE_STUDENT_WINDOW_SECONDS: int = 600  # 学号限流时间窗
+    SEND_CODE_MAX_PER_STUDENT_WINDOW: int = 5  # 单学号时间窗内最多发送次数
+    VERIFY_FAIL_WINDOW_SECONDS: int = 900  # 验证码输错统计窗口
+    VERIFY_MAX_FAIL_PER_EMAIL_WINDOW: int = 8  # 窗口内最多错误次数
+    VERIFY_BLOCK_SECONDS: int = 1800  # 触发后封禁时长（秒）
 
     class Config:
         env_file = ".env"

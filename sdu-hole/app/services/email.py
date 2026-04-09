@@ -100,12 +100,13 @@ def _format_smtp_error(error: Exception) -> str:
 
 async def create_and_send_code(email: str) -> str:
     """生成验证码 -> 缓存 -> 发送"""
-    # 频率限制：60秒内不能重复发送
+    # 频率限制：最小间隔内不能重复发送
     if email in _code_store:
         _, expire_at = _code_store[email]
         remaining = expire_at - time.time()
-        if remaining > settings.CODE_EXPIRE_SECONDS - 60:
-            raise ValueError("请求过于频繁，请60秒后重试")
+        min_interval = settings.SEND_CODE_MIN_INTERVAL_SECONDS
+        if remaining > settings.CODE_EXPIRE_SECONDS - min_interval:
+            raise ValueError(f"请求过于频繁，请{min_interval}秒后重试")
 
     code = generate_code()
     _code_store[email] = (code, time.time() + settings.CODE_EXPIRE_SECONDS)
