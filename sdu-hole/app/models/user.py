@@ -13,5 +13,6 @@ class User(Base):
     nickname = Column(String(10), unique=True, index=True, nullable=True)
     is_active = Column(Boolean, default=True)
     is_banned = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
     last_login = Column(DateTime, server_default=func.now(), onupdate=func.now())

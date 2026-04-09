@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, posts
+from app.routers import auth, posts, admin
+from app.services.filter import load_words_from_file
 
 
 @asynccontextmanager
@@ -14,6 +15,7 @@ async def lifespan(app: FastAPI):
     print(f"\n🕳️  {settings.APP_NAME} 正在启动...")
     print(f"📧 邮件模式: {settings.EMAIL_MODE}")
     print(f"🏫 邮箱后缀: {settings.ALLOWED_EMAIL_SUFFIX}")
+    load_words_from_file(settings.SENSITIVE_WORDS_FILE)
     await init_db()
     print("✅ 数据库初始化完成")
     print(f"📖 API 文档: http://localhost:8000/docs\n")
@@ -40,6 +42,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(auth.router)
 app.include_router(posts.router)
+app.include_router(admin.router)
 
 
 @app.get("/", tags=["首页"])

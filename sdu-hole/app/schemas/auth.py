@@ -16,6 +16,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     must_bind_nickname: bool = False
     nickname: str | None = None
+    is_admin: bool = False
 
 
 class RandomNicknameResponse(BaseModel):
@@ -29,3 +30,4 @@ class BindNicknameRequest(BaseModel):
 class UserProfileResponse(BaseModel):
     nickname: str | None = None
     must_bind_nickname: bool
+    is_admin: bool = False

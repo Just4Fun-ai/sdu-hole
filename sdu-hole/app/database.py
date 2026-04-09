@@ -28,6 +28,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_user_nickname_column)
+        await conn.run_sync(_migrate_user_is_admin_column)
 
 
 def _migrate_user_nickname_column(sync_conn):
@@ -41,3 +42,16 @@ def _migrate_user_nickname_column(sync_conn):
     cols = [c["name"] for c in inspector.get_columns("users")]
     if "nickname" not in cols:
         sync_conn.execute(text("ALTER TABLE users ADD COLUMN nickname VARCHAR(10)"))
+
+
+def _migrate_user_is_admin_column(sync_conn):
+    """
+    轻量迁移：确保 users.is_admin 列存在（兼容旧库）。
+    """
+    inspector = inspect(sync_conn)
+    if "users" not in inspector.get_table_names():
+        return
+
+    cols = [c["name"] for c in inspector.get_columns("users")]
+    if "is_admin" not in cols:
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0"))

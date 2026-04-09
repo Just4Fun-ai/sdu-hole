@@ -63,3 +63,8 @@ async def get_current_user(
         raise HTTPException(status_code=403, detail="账号已被封禁")
 
     return user
+
+
+def ensure_admin(user: User):
+    if not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="仅管理员可操作")

@@ -149,18 +149,27 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
     _verify_block_until.pop(email, None)
 
     sid_hash = hash_student_id(sid)
+    is_admin_sid = sid in settings.admin_student_ids_list
     result = await db.execute(select(User).where(User.student_id_hash == sid_hash))
     user = result.scalar_one_or_none()
     must_bind_nickname = False
 
     if user is None:
-        user = User(student_id_hash=sid_hash, email=email, nickname=None)
+        user = User(
+            student_id_hash=sid_hash,
+            email=email,
+            nickname=None,
+            is_admin=is_admin_sid,
+        )
         db.add(user)
         await db.flush()
         await db.refresh(user)
         must_bind_nickname = True
         print(f"✅ 新用户注册: user_id={user.id}")
     else:
+        # 允许通过配置自动提升管理员
+        if is_admin_sid and not user.is_admin:
+            user.is_admin = True
         must_bind_nickname = not bool((user.nickname or "").strip())
         print(f"✅ 用户登录: user_id={user.id}")
 
@@ -170,6 +179,7 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
         access_token=token,
         must_bind_nickname=must_bind_nickname,
         nickname=user.nickname,
+        is_admin=bool(user.is_admin),
     )
 
 
@@ -202,4 +212,5 @@ async def me(user: User = Depends(get_current_user)):
     return UserProfileResponse(
         nickname=nickname,
         must_bind_nickname=nickname is None,
+        is_admin=bool(user.is_admin),
     )

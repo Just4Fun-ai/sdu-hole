@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     # 学校邮箱
     ALLOWED_EMAIL_SUFFIX: str = "@mail.sdu.edu.cn"
+    # 管理员学号（逗号分隔，明文学号，仅用于启动时比对后写入 is_admin）
+    ADMIN_STUDENT_IDS: str = ""
 
     # 邮件模式: "console" 打印到控制台 | "smtp" 真实发送
     EMAIL_MODE: str = "console"
@@ -46,6 +48,10 @@ class Settings(BaseSettings):
     VERIFY_MAX_FAIL_PER_EMAIL_WINDOW: int = 8  # 窗口内最多错误次数
     VERIFY_BLOCK_SECONDS: int = 1800  # 触发后封禁时长（秒）
 
+    # 内容安全
+    # 敏感词文件（每行一个词，支持 # 注释）
+    SENSITIVE_WORDS_FILE: str = "app/data/sensitive_words.txt"
+
     class Config:
         env_file = ".env"
 
@@ -66,6 +72,10 @@ class Settings(BaseSettings):
         if self.CORS_ORIGINS.strip() == "*":
             return ["*"]
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def admin_student_ids_list(self) -> list[str]:
+        return [sid.strip() for sid in self.ADMIN_STUDENT_IDS.split(",") if sid.strip()]
 
 
 settings = Settings()
