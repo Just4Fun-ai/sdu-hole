@@ -8,8 +8,24 @@ class SendCodeRequest(BaseModel):
 class VerifyRequest(BaseModel):
     student_id: str
     code: str
+    nickname: str | None = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    must_bind_nickname: bool = False
+    nickname: str | None = None
+
+
+class RandomNicknameResponse(BaseModel):
+    nickname: str
+
+
+class BindNicknameRequest(BaseModel):
+    nickname: str
+
+
+class UserProfileResponse(BaseModel):
+    nickname: str | None = None
+    must_bind_nickname: bool

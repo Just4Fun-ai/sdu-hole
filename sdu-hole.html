@@ -225,8 +225,15 @@
   .comment-item { padding:14px 0; border-bottom:1px solid var(--border-light); animation:fadeIn .3s ease-out; }
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
-    border-top:1px solid var(--border); padding:12px 16px; display:flex; gap:10px; align-items:center; z-index:50;
+    border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
   }
+  .comment-input-row { display:flex; gap:10px; align-items:center; }
+  .emoji-bar { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
+  .emoji-btn {
+    border:1px solid var(--border); background:var(--surface); border-radius:999px;
+    padding:4px 8px; font-size:14px; cursor:pointer;
+  }
+  .action-btn.warn { color:#b45309; }
   .comment-input { flex:1; padding:10px 14px; border-radius:var(--r); border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; font-family:var(--font-sans); transition:all .2s; }
   .send-btn {
     padding:10px 18px; border-radius:var(--r); border:none;
@@ -266,28 +273,33 @@
 // ============================================================
 let state = {
   token: sessionStorage.getItem("sdu_token") || "",
-  page: "feed",        // login | feed | detail
+  page: "feed",        // login | bind | feed | detail
   posts: [],
   selectedPost: null,
   comments: [],
   activeTag: "全部",
   order: "new",
   keyword: "",
+  authChecked: false,
+  authChecking: false,
   loading: false,
 };
 
-const TAGS = ["课程评价", "老师评价", "校园活动", "生活吐槽", "求助", "表白墙", "二手交易", "考研交流"];
+const TAGS = ["课程评价", "校园活动", "美食推荐", "游玩推荐", "生活吐槽", "求助", "表白墙", "二手交易", "考研交流", "失物招领"];
 const TAG_COLORS = {
   "课程评价": { bg:"#eef2ff", text:"#4338ca", border:"#c7d2fe" },
-  "老师评价": { bg:"#fef3c7", text:"#92400e", border:"#fcd34d" },
   "校园活动": { bg:"#ecfdf5", text:"#065f46", border:"#a7f3d0" },
+  "美食推荐": { bg:"#fff7ed", text:"#c2410c", border:"#fdba74" },
+  "游玩推荐": { bg:"#f0fdfa", text:"#0f766e", border:"#99f6e4" },
   "生活吐槽": { bg:"#fdf2f8", text:"#9d174d", border:"#fbcfe8" },
   "求助":     { bg:"#fff7ed", text:"#9a3412", border:"#fed7aa" },
   "表白墙":   { bg:"#fce7f3", text:"#be185d", border:"#f9a8d4" },
   "二手交易": { bg:"#f0fdfa", text:"#115e59", border:"#99f6e4" },
   "考研交流": { bg:"#eef2ff", text:"#3730a3", border:"#a5b4fc" },
+  "失物招领": { bg:"#f5f3ff", text:"#5b21b6", border:"#c4b5fd" },
 };
 const ANON_ANIMALS = ["松鼠","白鹭","银杏","海棠","泉水","石榴","明湖","樱花"];
+const EMOJIS = ["🙂", "😊", "🤔", "👍", "🙏", "🎉", "🍜", "☕", "🌟", "📚", "🏫", "🌸"];
 
 function tagChipHTML(tag) {
   const c = TAG_COLORS[tag] || {bg:"#f3f4f6",text:"#374151",border:"#d1d5db"};
@@ -310,11 +322,11 @@ function avatarHTML(id, name, size=30) {
 }
 
 function isReviewTag(tag) {
-  return tag === "课程评价" || tag === "老师评价";
+  return tag === "课程评价";
 }
 
 function parseReviewMeta(content) {
-  const meta = { course: "", teacher: "", semester: "", rating: "", body: content };
+  const meta = { course: "", semester: "", rating: "", body: content };
   if (!content || !content.includes("【")) return meta;
 
   const lines = content.split("\n");
@@ -322,7 +334,6 @@ function parseReviewMeta(content) {
   lines.forEach((line, idx) => {
     const row = line.trim();
     if (row.startsWith("【课程】")) meta.course = row.replace("【课程】", "").trim();
-    if (row.startsWith("【老师】")) meta.teacher = row.replace("【老师】", "").trim();
     if (row.startsWith("【学期】")) meta.semester = row.replace("【学期】", "").trim();
     if (row.startsWith("【评分】")) meta.rating = row.replace("【评分】", "").trim();
     if (row.startsWith("【评价】") || row.startsWith("【内容】")) bodyStart = idx + 1;
@@ -333,6 +344,14 @@ function parseReviewMeta(content) {
     if (body) meta.body = body;
   }
   return meta;
+}
+
+function getDisplayTags() {
+  const set = new Set(TAGS);
+  state.posts.forEach(p => {
+    if (p.tag && p.tag.trim()) set.add(p.tag.trim());
+  });
+  return Array.from(set);
 }
 
 // ============================================================
@@ -375,9 +394,18 @@ function formatAuthErrorMessage(raw) {
 // ============================================================
 function render() {
   const app = document.getElementById("app");
+  if (state.token && !state.authChecked) {
+    app.innerHTML = `<div class="login-page"><div class="login-card"><div class="empty-state">正在校验登录状态...</div></div></div>`;
+    if (!state.authChecking) bootstrapAuth();
+    return;
+  }
+
   if (!state.token) {
     app.innerHTML = renderLogin();
     bindLogin();
+  } else if (state.page === "bind") {
+    app.innerHTML = renderBind();
+    bindBind();
   } else if (state.page === "detail" && state.selectedPost) {
     app.innerHTML = renderDetail();
     bindDetail();
@@ -389,8 +417,25 @@ function render() {
   }
 }
 
+async function bootstrapAuth() {
+  state.authChecking = true;
+  try {
+    const me = await apiFetch("/api/auth/me");
+    state.page = me.must_bind_nickname ? "bind" : "feed";
+  } catch (e) {
+    state.token = "";
+    sessionStorage.removeItem("sdu_token");
+    state.page = "login";
+  } finally {
+    state.authChecked = true;
+    state.authChecking = false;
+    render();
+  }
+}
+
 // ---- LOGIN ----
 let loginStep = "input", loginStudentId = "", loginCode = "", loginCountdown = 0, loginTimer = null;
+let bindNickname = "";
 
 function renderLogin() {
   const emailPreview = loginStudentId.length >= 6
@@ -449,6 +494,7 @@ function bindLogin() {
     const sid = document.getElementById("sid");
     const btn = document.getElementById("btn-send");
     sid.focus();
+
     sid.addEventListener("input", () => {
       loginStudentId = sid.value.replace(/\D/g,"");
       sid.value = loginStudentId;
@@ -511,6 +557,8 @@ async function verifyCode() {
     const data = await apiFetch("/api/auth/verify", { method:"POST", body:{student_id:loginStudentId, code:loginCode} });
     state.token = data.access_token;
     sessionStorage.setItem("sdu_token", state.token);
+    state.authChecked = true;
+    state.page = data.must_bind_nickname ? "bind" : "feed";
     loginStep = "input"; loginCode = "";
     render();
   } catch(e) {
@@ -519,9 +567,73 @@ async function verifyCode() {
   }
 }
 
+function renderBind() {
+  return `
+    <div class="login-page">
+      <div class="login-card">
+        <div class="login-logo">
+          <div class="logo-mark">🕳️</div>
+          <div class="login-title">绑定匿名昵称</div>
+          <div class="login-sub">首次登录需要设置，后续会长期使用该昵称</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <input class="form-input" id="bind-nickname" placeholder="输入1-10字符（中文/英文/数字）" value="${escapeAttr(bindNickname)}" maxlength="10">
+          <button class="btn-outline" id="btn-random-name" style="white-space:nowrap">随机</button>
+        </div>
+        <div class="form-hint">不允许重复，不允许标点，不允许违规内容</div>
+        <div id="bind-error"></div>
+        <button class="btn-primary" id="btn-bind-submit" ${bindNickname.trim() ? "" : "disabled"}>完成绑定</button>
+      </div>
+    </div>`;
+}
+
+function bindBind() {
+  const input = document.getElementById("bind-nickname");
+  const btnSubmit = document.getElementById("btn-bind-submit");
+  const btnRandom = document.getElementById("btn-random-name");
+
+  input.focus();
+  input.addEventListener("input", () => {
+    bindNickname = input.value.trim();
+    input.value = bindNickname;
+    btnSubmit.disabled = !bindNickname;
+  });
+
+  btnRandom.addEventListener("click", async () => {
+    try {
+      const data = await apiFetch("/api/auth/random-nickname");
+      bindNickname = (data.nickname || "").trim();
+      input.value = bindNickname;
+      btnSubmit.disabled = !bindNickname;
+    } catch (e) {
+      document.getElementById("bind-error").innerHTML = `<div class="form-error">${e.message}</div>`;
+    }
+  });
+
+  btnSubmit.addEventListener("click", submitBindNickname);
+}
+
+async function submitBindNickname() {
+  const btn = document.getElementById("btn-bind-submit");
+  const errEl = document.getElementById("bind-error");
+  btn.disabled = true;
+  btn.textContent = "绑定中...";
+  errEl.innerHTML = "";
+  try {
+    await apiFetch("/api/auth/bind-nickname", { method: "POST", body: { nickname: bindNickname } });
+    bindNickname = "";
+    state.page = "feed";
+    render();
+  } catch (e) {
+    errEl.innerHTML = `<div class="form-error">${e.message}</div>`;
+    btn.disabled = false;
+    btn.textContent = "完成绑定";
+  }
+}
+
 // ---- FEED ----
 function renderFeed() {
-  const tagPills = ["全部", ...TAGS].map(t =>
+  const tagPills = ["全部", ...getDisplayTags()].map(t =>
     `<span class="tag-pill ${state.activeTag===t?"active":""}" data-tag="${t}">${t}</span>`
   ).join("");
 
@@ -541,7 +653,7 @@ function renderFeed() {
           <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
         </div>
         <div class="search-row">
-          <input id="search-input" class="search-input" placeholder="搜索课程 / 老师 / 关键词" value="${escapeAttr(state.keyword)}">
+          <input id="search-input" class="search-input" placeholder="搜索关键词" value="${escapeAttr(state.keyword)}">
         </div>
       </div>
       <div class="tag-bar">${tagPills}</div>
@@ -594,6 +706,19 @@ function escapeAttr(str) {
   return String(str || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
+function appendEmojiToInput(inputEl, emoji) {
+  if (!inputEl) return;
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  const val = inputEl.value;
+  inputEl.value = val.slice(0, start) + emoji + val.slice(end);
+  const pos = start + emoji.length;
+  inputEl.selectionStart = pos;
+  inputEl.selectionEnd = pos;
+  inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+  inputEl.focus();
+}
+
 function filteredPosts() {
   const keyword = state.keyword.trim().toLowerCase();
   if (!keyword) return state.posts;
@@ -607,7 +732,6 @@ function reviewMetaHTML(post) {
   const meta = parseReviewMeta(post.content);
   const chips = [];
   if (meta.course) chips.push(`<span class="review-badge">课程: ${escapeHTML(meta.course)}</span>`);
-  if (meta.teacher) chips.push(`<span class="review-badge">老师: ${escapeHTML(meta.teacher)}</span>`);
   if (meta.semester) chips.push(`<span class="review-badge">学期: ${escapeHTML(meta.semester)}</span>`);
   if (meta.rating) chips.push(`<span class="review-badge">评分: ${escapeHTML(meta.rating)}</span>`);
   return chips.length ? `<div class="review-meta">${chips.join("")}</div>` : "";
@@ -642,15 +766,44 @@ function bindPostListInteractions(list) {
       } catch(err) { console.error(err); }
     });
   });
+
+  list.querySelectorAll("[data-report-post]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.reportPost);
+      const reason = prompt("请简要说明举报原因（可留空）") || "";
+      try {
+        const data = await apiFetch(`/api/posts/${id}/report`, { method: "POST", body: { reason } });
+        alert(data.message || "举报已提交");
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  list.querySelectorAll("[data-delete-post]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.deletePost);
+      if (!confirm("确认删除这条帖子吗？")) return;
+      try {
+        await apiFetch(`/api/posts/${id}`, { method: "DELETE" });
+        state.posts = state.posts.filter(p => p.id !== id);
+        renderPostList();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 }
 
 // ---- NEW POST MODAL ----
-let newPostTag = "", newPostContent = "", newPostMeta = { course: "", teacher: "", semester: "", rating: "" };
+let newPostTag = "", newPostContent = "", newPostMeta = { course: "", semester: "", rating: "" };
 
 function showNewPostModal() {
   newPostTag = "";
   newPostContent = "";
-  newPostMeta = { course: "", teacher: "", semester: "", rating: "" };
+  newPostMeta = { course: "", semester: "", rating: "" };
   const root = document.getElementById("modal-root");
   root.innerHTML = `
     <div class="modal-overlay" id="modal-overlay">
@@ -660,8 +813,12 @@ function showNewPostModal() {
         <div class="tags-wrap">
           ${TAGS.map(t=>`<span class="tag-select" data-stag="${t}">${t}</span>`).join("")}
         </div>
+        <input class="form-input" id="custom-tag" placeholder="或输入自定义标签（最多20字）" maxlength="20" value="${escapeAttr(newPostTag)}">
         <div id="review-fields"></div>
         <textarea class="form-textarea" id="new-content" placeholder="说点什么吧……你的发言完全匿名 🌳" maxlength="2000"></textarea>
+        <div class="emoji-bar">
+          ${EMOJIS.map(e => `<button class="emoji-btn" data-post-emoji="${e}">${e}</button>`).join("")}
+        </div>
         <div class="char-counter">预计发送长度：<span id="char-count">0</span> / 2000</div>
         <div id="new-error"></div>
         <button class="btn-primary" id="btn-submit" disabled>匿名发布</button>
@@ -677,17 +834,33 @@ function showNewPostModal() {
     el.addEventListener("click", () => {
       newPostTag = newPostTag === el.dataset.stag ? "" : el.dataset.stag;
       document.querySelectorAll("[data-stag]").forEach(s => s.classList.toggle("active", s.dataset.stag === newPostTag));
+      const customTag = document.getElementById("custom-tag");
+      if (customTag) customTag.value = newPostTag;
       renderReviewFields();
       updatePostLength();
       updateSubmitBtn();
     });
   });
 
+  const customTag = document.getElementById("custom-tag");
+  if (customTag) {
+    customTag.addEventListener("input", () => {
+      newPostTag = customTag.value.trim();
+      document.querySelectorAll("[data-stag]").forEach(s => s.classList.toggle("active", s.dataset.stag === newPostTag));
+      renderReviewFields();
+      updatePostLength();
+      updateSubmitBtn();
+    });
+  }
+
   const ta = document.getElementById("new-content");
   ta.addEventListener("input", () => {
     newPostContent = ta.value;
     updatePostLength();
     updateSubmitBtn();
+  });
+  document.querySelectorAll("[data-post-emoji]").forEach(btn => {
+    btn.addEventListener("click", () => appendEmojiToInput(ta, btn.dataset.postEmoji));
   });
   ta.focus();
 
@@ -703,7 +876,6 @@ function renderReviewFields() {
     return;
   }
 
-  const teacherRequired = newPostTag === "老师评价";
   box.innerHTML = `
     <div class="review-fields">
       <div class="review-tip">该标签支持结构化评价，发布后会自动整理为标准格式，方便检索和查看。</div>
@@ -713,10 +885,6 @@ function renderReviewFields() {
           <input id="meta-course" data-meta="course" placeholder="例如：高等数学A(2)" value="${escapeAttr(newPostMeta.course)}">
         </div>
         <div class="review-item">
-          <label>老师姓名（${teacherRequired ? "必填" : "选填"}）</label>
-          <input id="meta-teacher" data-meta="teacher" placeholder="例如：张老师" value="${escapeAttr(newPostMeta.teacher)}">
-        </div>
-        <div class="review-item">
           <label>学期（选填）</label>
           <input id="meta-semester" data-meta="semester" placeholder="例如：2025-2026-1" value="${escapeAttr(newPostMeta.semester)}">
         </div>
@@ -724,11 +892,7 @@ function renderReviewFields() {
           <label>综合评分（必填）</label>
           <select id="meta-rating" data-meta="rating">
             <option value="">请选择</option>
-            <option value="1/5" ${newPostMeta.rating==="1/5"?"selected":""}>1 / 5</option>
-            <option value="2/5" ${newPostMeta.rating==="2/5"?"selected":""}>2 / 5</option>
-            <option value="3/5" ${newPostMeta.rating==="3/5"?"selected":""}>3 / 5</option>
-            <option value="4/5" ${newPostMeta.rating==="4/5"?"selected":""}>4 / 5</option>
-            <option value="5/5" ${newPostMeta.rating==="5/5"?"selected":""}>5 / 5</option>
+            ${Array.from({length: 11}, (_, i) => `<option value="${i}/10" ${newPostMeta.rating===`${i}/10`?"selected":""}>${i} / 10</option>`).join("")}
           </select>
         </div>
       </div>
@@ -754,7 +918,6 @@ function buildPostPayloadContent() {
 
   const lines = [];
   if (newPostMeta.course.trim()) lines.push(`【课程】${newPostMeta.course.trim()}`);
-  if (newPostMeta.teacher.trim()) lines.push(`【老师】${newPostMeta.teacher.trim()}`);
   if (newPostMeta.semester.trim()) lines.push(`【学期】${newPostMeta.semester.trim()}`);
   if (newPostMeta.rating.trim()) lines.push(`【评分】${newPostMeta.rating.trim()}`);
   lines.push("【评价】");
@@ -772,11 +935,10 @@ function updatePostLength() {
 function updateSubmitBtn() {
   const btn = document.getElementById("btn-submit");
   if (!btn) return;
-  let valid = !!newPostContent.trim() && !!newPostTag;
+  let valid = !!newPostContent.trim() && !!newPostTag.trim();
 
   if (valid && isReviewTag(newPostTag)) {
     valid = !!newPostMeta.course.trim() && !!newPostMeta.rating.trim();
-    if (newPostTag === "老师评价") valid = valid && !!newPostMeta.teacher.trim();
   }
   btn.disabled = !valid;
 }
@@ -795,10 +957,11 @@ async function submitNewPost() {
   }
 
   try {
-    const post = await apiFetch("/api/posts/", { method:"POST", body:{ content:payloadContent, tag:newPostTag } });
+    const post = await apiFetch("/api/posts/", { method:"POST", body:{ content:payloadContent, tag:newPostTag.trim() } });
     state.posts.unshift(post);
+    state.activeTag = "全部";
     document.getElementById("modal-root").innerHTML = "";
-    renderPostList();
+    render();
   } catch(e) {
     errEl.innerHTML = `<div class="form-error">${e.message}</div>`;
     btn.disabled = false; btn.textContent = "匿名发布";
@@ -834,6 +997,8 @@ function renderPostList() {
       <div class="post-actions">
         <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
         <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
+        <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
+        ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">🗑 删除</button>` : ""}
       </div>
     </div>
   `).join("");
@@ -869,14 +1034,26 @@ function renderDetail() {
           ${tagChipHTML(p.tag)}
         </div>
         ${detailContentHTML(p)}
+        <div class="post-actions" style="margin-top:12px">
+          <button class="action-btn ${p.is_liked?"liked":""}" id="detail-like-btn">
+            ${p.is_liked?"❤️":"🤍"} <span id="detail-like-count">${p.like_count}</span>
+          </button>
+          <button class="action-btn warn" id="detail-report-btn">🚩 举报帖子</button>
+          ${p.is_mine ? `<button class="action-btn warn" id="detail-delete-btn">🗑 删除帖子</button>` : ""}
+        </div>
       </div>
       <div class="section-title">💬 全部回复 (<span id="comment-count">…</span>)</div>
       <div id="comments-list"><div class="empty-state">加载中...</div></div>
       <div style="height:80px"></div>
     </div>
     <div class="comment-bar">
-      <input class="comment-input" id="comment-input" placeholder="写下你的回复..." maxlength="500">
-      <button class="send-btn" id="btn-send-comment">发送</button>
+      <div class="comment-input-row">
+        <input class="comment-input" id="comment-input" placeholder="写下你的回复..." maxlength="500">
+        <button class="send-btn" id="btn-send-comment">发送</button>
+      </div>
+      <div class="emoji-bar">
+        ${EMOJIS.map(e => `<button class="emoji-btn" data-comment-emoji="${e}">${e}</button>`).join("")}
+      </div>
     </div>`;
 }
 
@@ -884,6 +1061,47 @@ function bindDetail() {
   document.getElementById("btn-back").addEventListener("click", () => { state.page = "feed"; state.selectedPost = null; render(); });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
   document.getElementById("comment-input").addEventListener("keydown", e => { if(e.key==="Enter") submitComment(); });
+  document.querySelectorAll("[data-comment-emoji]").forEach(btn => {
+    btn.addEventListener("click", () => appendEmojiToInput(document.getElementById("comment-input"), btn.dataset.commentEmoji));
+  });
+
+  const likeBtn = document.getElementById("detail-like-btn");
+  if (likeBtn) {
+    likeBtn.addEventListener("click", async () => {
+      try {
+        const data = await apiFetch(`/api/posts/${state.selectedPost.id}/like`, { method: "POST" });
+        state.selectedPost.is_liked = data.liked;
+        state.selectedPost.like_count = data.like_count;
+        likeBtn.classList.toggle("liked", data.liked);
+        likeBtn.innerHTML = `${data.liked ? "❤️" : "🤍"} <span id="detail-like-count">${data.like_count}</span>`;
+      } catch (e) { alert(e.message); }
+    });
+  }
+
+  const reportBtn = document.getElementById("detail-report-btn");
+  if (reportBtn) {
+    reportBtn.addEventListener("click", async () => {
+      const reason = prompt("请简要说明举报原因（可留空）") || "";
+      try {
+        const data = await apiFetch(`/api/posts/${state.selectedPost.id}/report`, { method:"POST", body:{ reason } });
+        alert(data.message || "举报已提交");
+      } catch (e) { alert(e.message); }
+    });
+  }
+
+  const deleteBtn = document.getElementById("detail-delete-btn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm("确认删除这条帖子吗？")) return;
+      try {
+        await apiFetch(`/api/posts/${state.selectedPost.id}`, { method: "DELETE" });
+        state.posts = state.posts.filter(p => p.id !== state.selectedPost.id);
+        state.selectedPost = null;
+        state.page = "feed";
+        render();
+      } catch (e) { alert(e.message); }
+    });
+  }
 }
 
 async function loadComments() {
@@ -903,12 +1121,51 @@ async function loadComments() {
             <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
           </div>
           <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
+          <div class="post-actions" style="padding-left:32px;margin-top:8px">
+            <button class="action-btn ${c.is_liked?"liked":""}" data-like-comment="${c.id}">
+              ${c.is_liked?"❤️":"🤍"} <span>${c.like_count}</span>
+            </button>
+            <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
+          </div>
         </div>
       `).join("");
+      bindCommentActions();
     }
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}</div>`;
   }
+}
+
+function bindCommentActions() {
+  const list = document.getElementById("comments-list");
+  if (!list) return;
+
+  list.querySelectorAll("[data-like-comment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.likeComment);
+      try {
+        const data = await apiFetch(`/api/posts/comments/${id}/like`, { method: "POST" });
+        const c = state.comments.find(x => x.id === id);
+        if (c) {
+          c.is_liked = data.liked;
+          c.like_count = data.like_count;
+        }
+        btn.classList.toggle("liked", data.liked);
+        btn.innerHTML = `${data.liked ? "❤️" : "🤍"} <span>${data.like_count}</span>`;
+      } catch (e) { alert(e.message); }
+    });
+  });
+
+  list.querySelectorAll("[data-report-comment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.reportComment);
+      const reason = prompt("请简要说明举报原因（可留空）") || "";
+      try {
+        const data = await apiFetch(`/api/posts/comments/${id}/report`, { method: "POST", body: { reason } });
+        alert(data.message || "举报已提交");
+      } catch (e) { alert(e.message); }
+    });
+  });
 }
 
 async function submitComment() {
@@ -933,7 +1190,12 @@ async function submitComment() {
           <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
         </div>
         <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
+        <div class="post-actions" style="padding-left:32px;margin-top:8px">
+          <button class="action-btn" data-like-comment="${c.id}">🤍 <span>0</span></button>
+          <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
+        </div>
       </div>`;
+    bindCommentActions();
     list.scrollTop = list.scrollHeight;
   } catch(e) {
     alert(e.message);

@@ -17,6 +17,7 @@ class PostResponse(BaseModel):
     comment_count: int
     created_at: datetime
     is_liked: bool = False
+    is_mine: bool = False
 
     class Config:
         from_attributes = True
@@ -37,3 +38,7 @@ class CommentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ReportCreate(BaseModel):
+    reason: Optional[str] = None
