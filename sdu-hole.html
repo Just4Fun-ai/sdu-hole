@@ -254,6 +254,7 @@
   const API_BASE =
     window.__SDU_API_BASE__ ||
     localStorage.getItem("sdu_api_base") ||
+    (location.protocol.startsWith("http") ? location.origin : "") ||
     "http://localhost:8000";
 </script>
 

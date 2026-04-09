@@ -92,6 +92,12 @@ window.__SDU_API_BASE__ = "https://你的后端域名.up.railway.app";
 3. 若报 SMTP 登录错误，检查 `SMTP_USER/SMTP_PASSWORD`（授权码）是否正确。
 4. 若数据库连接错误，优先检查 `DATABASE_URL` 是否为有效 Postgres 地址。
 
+## 国内服务器 IP 快速上线
+
+如果你想先在国内云服务器用公网 IP 跑起来（不等备案先看效果），请看：
+
+- [DEPLOY_CN_IP.md](/Users/lesux/Code/sdutreehole/DEPLOY_CN_IP.md)
+
 ## 测试登录流程
 
 打开浏览器访问 **http://localhost:8000/docs** ，按以下步骤操作：
