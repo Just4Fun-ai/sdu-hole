@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>山大树洞 SDU Hole</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕳️</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai:wght@300;400;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f6f5f0; --surface: #fff; --border: #e8e6df; --border-light: #f0eeea;
+    --accent: #b44a1c; --accent-hover: #9a3e17; --accent-soft: #fdf0ea; --accent-border: rgba(180,74,28,0.15);
+    --text: #2c2a25; --text2: #78756d; --text3: #a09d96;
+    --danger: #c53030;
+    --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+    --r: 10px; --rl: 14px;
+    --font: 'LXGW WenKai', 'Noto Serif SC', Georgia, serif;
+    --font-sans: 'LXGW WenKai', 'Noto Sans SC', 'PingFang SC', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important; }
+  button { font-family: var(--font-sans); }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes slideUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+  @keyframes pulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.3);} }
+
+  .container { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+  /* ---- Login ---- */
+  .login-page {
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    background: radial-gradient(circle at 20% 50%, rgba(180,74,28,0.04) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(180,74,28,0.03) 0%, transparent 40%);
+  }
+  .login-card {
+    width:100%; max-width:400px; background:var(--surface); border-radius:20px; padding:40px 32px;
+    border:1px solid var(--border); box-shadow:var(--shadow); animation:fadeUp .5s ease-out;
+  }
+  .login-logo { text-align:center; margin-bottom:28px; }
+  .logo-mark {
+    width:56px; height:56px; border-radius:16px; margin:0 auto 14px;
+    background:linear-gradient(145deg, var(--accent), #d4622c);
+    display:flex; align-items:center; justify-content:center; font-size:26px;
+    box-shadow:0 4px 16px rgba(180,74,28,0.25);
+  }
+  .login-title { font-size:22px; font-weight:700; letter-spacing:1px; }
+  .login-sub { font-size:13px; color:var(--text2); margin-top:6px; line-height:1.6; }
+
+  .form-label { display:block; font-size:13px; font-weight:500; color:var(--text2); margin-bottom:6px; }
+  .form-input {
+    width:100%; padding:12px 14px; border-radius:var(--r); border:1px solid var(--border);
+    background:var(--bg); color:var(--text); font-size:15px; font-family:var(--font-sans); transition:all .2s;
+  }
+  .email-preview {
+    padding:10px 14px; border-radius:var(--r); background:var(--accent-soft);
+    border:1px solid var(--accent-border); font-size:13px; color:var(--accent);
+    font-weight:500; margin-top:8px; font-family:monospace;
+  }
+  .form-hint { font-size:12px; color:var(--text3); margin-top:8px; line-height:1.5; }
+  .form-error {
+    padding:10px 14px; border-radius:8px; background:#fef2f2;
+    border:1px solid #fecaca; color:var(--danger); font-size:13px; margin-top:12px;
+  }
+  .btn-primary {
+    width:100%; padding:13px 0; border-radius:var(--r); border:none;
+    background:var(--accent); color:#fff; font-size:15px; font-weight:600;
+    cursor:pointer; margin-top:20px; transition:all .2s;
+    box-shadow:0 2px 8px rgba(180,74,28,0.2);
+  }
+  .btn-primary:hover { background:var(--accent-hover); }
+  .btn-primary:disabled { background:var(--border); color:var(--text3); cursor:not-allowed; box-shadow:none; }
+  .login-footer { text-align:center; font-size:11px; color:var(--text3); margin-top:24px; line-height:1.8; }
+
+  .code-input { text-align:center; letter-spacing:12px; font-size:22px; font-weight:700; }
+  .resend-btn { background:none; border:none; font-size:13px; cursor:pointer; margin-top:14px; }
+
+  /* ---- Feed ---- */
+  .feed-header {
+    padding:20px 0 14px; border-bottom:1px solid var(--border); margin-bottom:16px;
+    position:sticky; top:0; z-index:100; background:var(--bg);
+  }
+  .header-row { display:flex; align-items:center; justify-content:space-between; }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-sm {
+    width:34px; height:34px; border-radius:10px;
+    background:linear-gradient(145deg, var(--accent), #d4622c);
+    display:flex; align-items:center; justify-content:center; font-size:17px;
+  }
+  .logo-text { font-size:19px; font-weight:700; letter-spacing:.5px; }
+  .badge-beta { font-size:10px; background:var(--accent); color:#fff; padding:2px 7px; border-radius:5px; font-weight:700; margin-left:4px; }
+  .btn-outline {
+    background:none; border:1px solid var(--border); border-radius:8px;
+    padding:6px 14px; font-size:12px; color:var(--text2); cursor:pointer; transition:all .2s;
+  }
+  .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+
+  .tab-bar { display:flex; gap:6px; margin-top:12px; }
+  .tab-btn {
+    padding:6px 12px; border-radius:8px; font-size:13px; font-weight:500;
+    cursor:pointer; border:none; transition:all .2s; background:transparent; color:var(--text3);
+  }
+  .tab-btn.active { background:var(--text); color:var(--surface); }
+
+  .tag-bar { display:flex; gap:6px; overflow-x:auto; padding:12px 0; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .tag-bar::-webkit-scrollbar { display:none; }
+  .search-row { margin-top:12px; }
+  .search-input {
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text); font-size:13px; font-family:var(--font-sans);
+  }
+  .tag-pill {
+    padding:6px 14px; border-radius:20px; font-size:13px; font-weight:500;
+    cursor:pointer; white-space:nowrap; transition:all .2s; flex-shrink:0;
+    border:1px solid var(--border); background:var(--surface); color:var(--text2);
+  }
+  .tag-pill.active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+
+  .post-list { display:flex; flex-direction:column; gap:10px; }
+
+  /* ---- Post Card ---- */
+  .post-card {
+    background:var(--surface); border-radius:var(--rl); padding:18px 20px;
+    border:1px solid var(--border); cursor:pointer; transition:all .2s;
+    animation:fadeUp .35s ease-out both;
+  }
+  .post-card:hover { box-shadow:var(--shadow-hover); border-color:var(--accent-border); }
+  .post-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .anon-info { display:flex; align-items:center; gap:8px; }
+  .anon-avatar {
+    width:30px; height:30px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; font-size:13px; font-weight:700;
+  }
+  .anon-name { font-size:13px; font-weight:600; }
+  .anon-time { font-size:12px; color:var(--text3); }
+  .tag-chip {
+    display:inline-block; padding:4px 10px; border-radius:6px; font-size:12px;
+    font-weight:500; line-height:1.4; white-space:nowrap;
+  }
+  .post-content { font-size:15px; line-height:1.8; margin-bottom:14px; word-break:break-word; }
+  .post-actions { display:flex; align-items:center; gap:18px; }
+  .action-btn {
+    display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text3);
+    cursor:pointer; background:none; border:none; transition:color .2s; padding:0;
+  }
+  .action-btn.liked { color:var(--accent); }
+
+  /* ---- FAB ---- */
+  .fab {
+    position:fixed; bottom:24px; right:24px; width:52px; height:52px; border-radius:14px;
+    border:none; cursor:pointer;
+    background:linear-gradient(145deg, var(--accent), #d4622c); color:#fff;
+    font-size:24px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 20px rgba(180,74,28,0.35); z-index:50; transition:transform .2s;
+  }
+  .fab:hover { transform:scale(1.08); }
+
+  /* ---- Modal ---- */
+  .modal-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.4); backdrop-filter:blur(4px);
+    z-index:200; display:flex; align-items:flex-end; justify-content:center;
+    animation:fadeIn .2s ease-out;
+  }
+  .modal-content {
+    background:var(--surface); border-radius:20px 20px 0 0; padding:28px;
+    width:100%; max-width:640px; max-height:85vh; overflow-y:auto;
+    border:1px solid var(--border); border-bottom:none; animation:slideUp .3s ease-out;
+  }
+  .modal-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; font-size:17px; font-weight:700; }
+  .modal-close { background:none; border:none; font-size:20px; color:var(--text3); cursor:pointer; padding:4px 8px; border-radius:6px; }
+  .tags-wrap { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  .tag-select {
+    padding:7px 14px; border-radius:20px; font-size:13px; font-weight:500;
+    cursor:pointer; white-space:nowrap; transition:all .2s;
+    border:1px solid var(--border); background:transparent; color:var(--text2);
+  }
+  .tag-select.active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+  .review-fields {
+    margin-bottom:14px; padding:12px; border-radius:10px;
+    border:1px solid var(--accent-border); background:var(--accent-soft);
+  }
+  .review-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .review-item { display:flex; flex-direction:column; gap:5px; }
+  .review-item.full { grid-column:1/-1; }
+  .review-item label { font-size:12px; color:var(--text2); font-weight:600; }
+  .review-item input, .review-item select {
+    width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text); font-size:13px; font-family:var(--font-sans);
+  }
+  .review-meta { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .review-badge {
+    font-size:12px; border-radius:999px; padding:2px 8px;
+    background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent);
+  }
+  .review-tip { font-size:12px; color:var(--text2); margin:8px 0 10px; line-height:1.5; }
+  .form-textarea {
+    width:100%; min-height:140px; padding:16px; border-radius:var(--r);
+    border:1px solid var(--border); background:var(--bg); color:var(--text);
+    font-size:15px; line-height:1.7; resize:vertical; font-family:var(--font); transition:all .2s;
+  }
+  .char-counter { text-align:right; font-size:12px; color:var(--text3); margin-top:4px; }
+  .modal-note { text-align:center; font-size:12px; color:var(--text3); margin-top:14px; }
+
+  /* ---- Detail ---- */
+  .detail-header {
+    display:flex; align-items:center; gap:12px; padding:16px 0;
+    border-bottom:1px solid var(--border); margin-bottom:16px;
+    position:sticky; top:0; background:var(--bg); z-index:10;
+  }
+  .back-btn {
+    background:none; border:none; cursor:pointer; padding:6px 10px; border-radius:8px;
+    color:var(--text2); font-size:14px; display:flex; align-items:center; gap:4px; transition:background .2s;
+  }
+  .back-btn:hover { background:var(--border-light); }
+  .detail-card {
+    background:var(--surface); border-radius:var(--rl); padding:22px;
+    border:1px solid var(--border); margin-bottom:20px; animation:fadeUp .3s ease-out;
+  }
+  .detail-content { font-size:16px; line-height:1.9; }
+  .section-title { font-size:14px; font-weight:600; color:var(--text2); padding:8px 0 12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
+  .comment-item { padding:14px 0; border-bottom:1px solid var(--border-light); animation:fadeIn .3s ease-out; }
+  .comment-bar {
+    position:fixed; bottom:0; left:0; right:0; background:var(--surface);
+    border-top:1px solid var(--border); padding:12px 16px; display:flex; gap:10px; align-items:center; z-index:50;
+  }
+  .comment-input { flex:1; padding:10px 14px; border-radius:var(--r); border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; font-family:var(--font-sans); transition:all .2s; }
+  .send-btn {
+    padding:10px 18px; border-radius:var(--r); border:none;
+    background:var(--accent); color:#fff; font-size:14px; font-weight:600;
+    cursor:pointer; white-space:nowrap; transition:background .2s;
+  }
+  .send-btn:hover { background:var(--accent-hover); }
+
+  .empty-state { text-align:center; padding:60px 20px; color:var(--text3); }
+  .empty-state .icon { font-size:36px; margin-bottom:12px; }
+
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- 可选：线上部署时可在 deploy-config.js 里注入 window.__SDU_API_BASE__ -->
+<script src="./deploy-config.js"></script>
+<!-- ===== 连接设置 ===== -->
+<script>
+  // 优先级:
+  // 1) window.__SDU_API_BASE__（可由部署平台注入）
+  // 2) localStorage.sdu_api_base
+  // 3) 本地默认地址
+  const API_BASE =
+    window.__SDU_API_BASE__ ||
+    localStorage.getItem("sdu_api_base") ||
+    "http://localhost:8000";
+</script>
+
+<div id="app"></div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let state = {
+  token: sessionStorage.getItem("sdu_token") || "",
+  page: "feed",        // login | feed | detail
+  posts: [],
+  selectedPost: null,
+  comments: [],
+  activeTag: "全部",
+  order: "new",
+  keyword: "",
+  loading: false,
+};
+
+const TAGS = ["课程评价", "老师评价", "校园活动", "生活吐槽", "求助", "表白墙", "二手交易", "考研交流"];
+const TAG_COLORS = {
+  "课程评价": { bg:"#eef2ff", text:"#4338ca", border:"#c7d2fe" },
+  "老师评价": { bg:"#fef3c7", text:"#92400e", border:"#fcd34d" },
+  "校园活动": { bg:"#ecfdf5", text:"#065f46", border:"#a7f3d0" },
+  "生活吐槽": { bg:"#fdf2f8", text:"#9d174d", border:"#fbcfe8" },
+  "求助":     { bg:"#fff7ed", text:"#9a3412", border:"#fed7aa" },
+  "表白墙":   { bg:"#fce7f3", text:"#be185d", border:"#f9a8d4" },
+  "二手交易": { bg:"#f0fdfa", text:"#115e59", border:"#99f6e4" },
+  "考研交流": { bg:"#eef2ff", text:"#3730a3", border:"#a5b4fc" },
+};
+const ANON_ANIMALS = ["松鼠","白鹭","银杏","海棠","泉水","石榴","明湖","樱花"];
+
+function tagChipHTML(tag) {
+  const c = TAG_COLORS[tag] || {bg:"#f3f4f6",text:"#374151",border:"#d1d5db"};
+  return `<span class="tag-chip" style="background:${c.bg};color:${c.text};border:1px solid ${c.border}">${tag}</span>`;
+}
+
+function timeAgo(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return Math.floor(diff/60) + " 分钟前";
+  if (diff < 86400) return Math.floor(diff/3600) + " 小时前";
+  if (diff < 604800) return Math.floor(diff/86400) + " 天前";
+  return new Date(dateStr).toLocaleDateString("zh-CN");
+}
+
+function avatarHTML(id, name, size=30) {
+  const hue = ((id||0) * 67) % 360;
+  const ch = name ? name[2] || "?" : "?";
+  return `<div class="anon-avatar" style="width:${size}px;height:${size}px;background:hsl(${hue},35%,88%);color:hsl(${hue},40%,40%)">${ch}</div>`;
+}
+
+function isReviewTag(tag) {
+  return tag === "课程评价" || tag === "老师评价";
+}
+
+function parseReviewMeta(content) {
+  const meta = { course: "", teacher: "", semester: "", rating: "", body: content };
+  if (!content || !content.includes("【")) return meta;
+
+  const lines = content.split("\n");
+  let bodyStart = -1;
+  lines.forEach((line, idx) => {
+    const row = line.trim();
+    if (row.startsWith("【课程】")) meta.course = row.replace("【课程】", "").trim();
+    if (row.startsWith("【老师】")) meta.teacher = row.replace("【老师】", "").trim();
+    if (row.startsWith("【学期】")) meta.semester = row.replace("【学期】", "").trim();
+    if (row.startsWith("【评分】")) meta.rating = row.replace("【评分】", "").trim();
+    if (row.startsWith("【评价】") || row.startsWith("【内容】")) bodyStart = idx + 1;
+  });
+
+  if (bodyStart >= 0 && bodyStart < lines.length) {
+    const body = lines.slice(bodyStart).join("\n").trim();
+    if (body) meta.body = body;
+  }
+  return meta;
+}
+
+// ============================================================
+// API
+// ============================================================
+async function apiFetch(path, opts={}) {
+  const headers = { "Content-Type": "application/json" };
+  if (state.token) headers["Authorization"] = "Bearer " + state.token;
+  const res = await fetch(API_BASE + path, {
+    method: opts.method || "GET",
+    headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({}));
+    if (res.status === 401) {
+      state.token = "";
+      sessionStorage.removeItem("sdu_token");
+      render();
+      throw new Error("登录已过期，请重新登录");
+    }
+    throw new Error(err.detail || "请求失败 (" + res.status + ")");
+  }
+  return res.json();
+}
+
+function formatAuthErrorMessage(raw) {
+  const msg = String(raw || "请求失败");
+  if (msg.includes("SMTP")) {
+    return `${msg}<br><span style="font-size:12px;color:var(--text3)">请检查 .env 的 SMTP 配置；若使用山大邮箱，建议先在校园网环境测试。</span>`;
+  }
+  if (msg.includes("请求过于频繁")) {
+    return `${msg}<br><span style="font-size:12px;color:var(--text3)">每次发送后需等待 60 秒再重发。</span>`;
+  }
+  return msg;
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  const app = document.getElementById("app");
+  if (!state.token) {
+    app.innerHTML = renderLogin();
+    bindLogin();
+  } else if (state.page === "detail" && state.selectedPost) {
+    app.innerHTML = renderDetail();
+    bindDetail();
+    loadComments();
+  } else {
+    app.innerHTML = renderFeed();
+    bindFeed();
+    loadPosts();
+  }
+}
+
+// ---- LOGIN ----
+let loginStep = "input", loginStudentId = "", loginCode = "", loginCountdown = 0, loginTimer = null;
+
+function renderLogin() {
+  const emailPreview = loginStudentId.length >= 6
+    ? `<div class="email-preview">📧 验证码将发送至 ${loginStudentId}@mail.sdu.edu.cn</div>` : "";
+
+  if (loginStep === "input") {
+    return `
+      <div class="login-page">
+        <div class="login-card">
+          <div class="login-logo">
+            <div class="logo-mark">🕳️</div>
+            <div class="login-title">山大树洞</div>
+            <div class="login-sub">SDU Hole · 匿名校园社区</div>
+          </div>
+          <div style="margin-bottom:4px">
+            <label class="form-label">学号</label>
+            <input class="form-input" id="sid" placeholder="请输入你的学号" value="${loginStudentId}" maxlength="14">
+            ${emailPreview}
+            <div class="form-hint">💡 控制台模式会打印在终端；SMTP 模式会发送到邮箱</div>
+          </div>
+          <div id="login-error"></div>
+          <button class="btn-primary" id="btn-send" ${loginStudentId.length < 6 ? "disabled" : ""}>发送验证码</button>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>登录即同意《用户协议》和《隐私政策》</div>
+        </div>
+      </div>`;
+  } else {
+    return `
+      <div class="login-page">
+        <div class="login-card">
+          <div class="login-logo">
+            <div class="logo-mark">🕳️</div>
+            <div class="login-title">山大树洞</div>
+            <div class="login-sub">SDU Hole · 匿名校园社区</div>
+          </div>
+          <div style="text-align:center;margin-bottom:16px">
+            <div style="font-size:13px;color:var(--text2);line-height:1.6">验证码已发送至</div>
+            <div style="font-size:14px;color:var(--accent);font-weight:600;margin-top:4px">${loginStudentId}@mail.sdu.edu.cn</div>
+          </div>
+          <input class="form-input code-input" id="code" placeholder="· · · · · ·" value="${loginCode}" maxlength="6">
+          <div class="form-hint">💡 控制台模式看后端终端；SMTP 模式看邮箱收件箱/垃圾箱</div>
+          <div id="login-error"></div>
+          <button class="btn-primary" id="btn-verify" ${loginCode.length !== 6 ? "disabled" : ""}>验证并登录</button>
+          <div style="text-align:center">
+            <button class="resend-btn" id="btn-resend" style="color:${loginCountdown > 0 ? 'var(--text3)' : 'var(--accent)'}" ${loginCountdown > 0 ? "disabled" : ""}>
+              ${loginCountdown > 0 ? loginCountdown + "s 后重新发送" : "重新发送验证码"}
+            </button>
+          </div>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
+        </div>
+      </div>`;
+  }
+}
+
+function bindLogin() {
+  if (loginStep === "input") {
+    const sid = document.getElementById("sid");
+    const btn = document.getElementById("btn-send");
+    sid.focus();
+    sid.addEventListener("input", () => {
+      loginStudentId = sid.value.replace(/\D/g,"");
+      sid.value = loginStudentId;
+      btn.disabled = loginStudentId.length < 6;
+      // update email preview
+      const parent = sid.parentElement;
+      let ep = parent.querySelector(".email-preview");
+      if (loginStudentId.length >= 6) {
+        if (!ep) { ep = document.createElement("div"); ep.className="email-preview"; parent.insertBefore(ep, parent.querySelector(".form-hint")); }
+        ep.textContent = "📧 验证码将发送至 " + loginStudentId + "@mail.sdu.edu.cn";
+      } else if (ep) { ep.remove(); }
+    });
+    sid.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
+    btn.addEventListener("click", sendCode);
+  } else {
+    const code = document.getElementById("code");
+    const btn = document.getElementById("btn-verify");
+    const resend = document.getElementById("btn-resend");
+    code.focus();
+    code.addEventListener("input", () => {
+      loginCode = code.value.replace(/\D/g,"").slice(0,6);
+      code.value = loginCode;
+      btn.disabled = loginCode.length !== 6;
+    });
+    code.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
+    btn.addEventListener("click", verifyCode);
+    resend.addEventListener("click", () => { if(loginCountdown===0) sendCode(); });
+  }
+}
+
+async function sendCode() {
+  const errEl = document.getElementById("login-error");
+  const btn = document.getElementById("btn-send") || document.getElementById("btn-resend");
+  if (btn) btn.disabled = true;
+  errEl.innerHTML = "";
+  try {
+    await apiFetch("/api/auth/send-code", { method:"POST", body:{student_id:loginStudentId} });
+    loginStep = "verify";
+    loginCountdown = 60;
+    clearInterval(loginTimer);
+    loginTimer = setInterval(() => {
+      loginCountdown--;
+      const r = document.getElementById("btn-resend");
+      if (r) { r.textContent = loginCountdown > 0 ? loginCountdown+"s 后重新发送" : "重新发送验证码"; r.disabled = loginCountdown>0; r.style.color = loginCountdown>0 ? "var(--text3)" : "var(--accent)"; }
+      if (loginCountdown <= 0) clearInterval(loginTimer);
+    }, 1000);
+    render();
+  } catch(e) {
+    errEl.innerHTML = `<div class="form-error">${formatAuthErrorMessage(e.message)}</div>`;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function verifyCode() {
+  const errEl = document.getElementById("login-error");
+  const btn = document.getElementById("btn-verify");
+  btn.disabled = true; btn.textContent = "验证中...";
+  errEl.innerHTML = "";
+  try {
+    const data = await apiFetch("/api/auth/verify", { method:"POST", body:{student_id:loginStudentId, code:loginCode} });
+    state.token = data.access_token;
+    sessionStorage.setItem("sdu_token", state.token);
+    loginStep = "input"; loginCode = "";
+    render();
+  } catch(e) {
+    errEl.innerHTML = `<div class="form-error">${formatAuthErrorMessage(e.message)}</div>`;
+    btn.disabled = false; btn.textContent = "验证并登录";
+  }
+}
+
+// ---- FEED ----
+function renderFeed() {
+  const tagPills = ["全部", ...TAGS].map(t =>
+    `<span class="tag-pill ${state.activeTag===t?"active":""}" data-tag="${t}">${t}</span>`
+  ).join("");
+
+  return `
+    <div class="container">
+      <div class="feed-header">
+        <div class="header-row">
+          <div class="logo">
+            <div class="logo-sm">🕳️</div>
+            <span class="logo-text">山大树洞</span>
+            <span class="badge-beta">BETA</span>
+          </div>
+          <button class="btn-outline" id="btn-logout">退出登录</button>
+        </div>
+        <div class="tab-bar">
+          <button class="tab-btn ${state.order==="new"?"active":""}" data-order="new">🕐 最新</button>
+          <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
+        </div>
+        <div class="search-row">
+          <input id="search-input" class="search-input" placeholder="搜索课程 / 老师 / 关键词" value="${escapeAttr(state.keyword)}">
+        </div>
+      </div>
+      <div class="tag-bar">${tagPills}</div>
+      <div class="post-list" id="post-list">
+        <div class="empty-state"><div class="icon">🌳</div>加载中...</div>
+      </div>
+      <div style="height:80px"></div>
+    </div>
+    <button class="fab" id="btn-new">✏️</button>
+    <div id="modal-root"></div>`;
+}
+
+function bindFeed() {
+  document.getElementById("btn-logout").addEventListener("click", () => {
+    state.token = ""; sessionStorage.removeItem("sdu_token"); render();
+  });
+  document.querySelectorAll(".tab-btn").forEach(el => {
+    el.addEventListener("click", () => { state.order = el.dataset.order; render(); });
+  });
+  document.querySelectorAll(".tag-pill").forEach(el => {
+    el.addEventListener("click", () => { state.activeTag = el.dataset.tag; render(); });
+  });
+  const searchInput = document.getElementById("search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      state.keyword = searchInput.value;
+      renderPostList();
+    });
+  }
+  document.getElementById("btn-new").addEventListener("click", showNewPostModal);
+}
+
+async function loadPosts() {
+  const list = document.getElementById("post-list");
+  try {
+    const params = new URLSearchParams({ order: state.order, page: "1", size: "50" });
+    if (state.activeTag !== "全部") params.set("tag", state.activeTag);
+    state.posts = await apiFetch("/api/posts/?" + params);
+    renderPostList();
+  } catch(e) {
+    list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
+  }
+}
+
+function escapeHTML(str) {
+  return String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+}
+
+function escapeAttr(str) {
+  return String(str || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function filteredPosts() {
+  const keyword = state.keyword.trim().toLowerCase();
+  if (!keyword) return state.posts;
+  return state.posts.filter(p =>
+    `${p.tag}\n${p.content}\n${p.anon_name}`.toLowerCase().includes(keyword)
+  );
+}
+
+function reviewMetaHTML(post) {
+  if (!isReviewTag(post.tag)) return "";
+  const meta = parseReviewMeta(post.content);
+  const chips = [];
+  if (meta.course) chips.push(`<span class="review-badge">课程: ${escapeHTML(meta.course)}</span>`);
+  if (meta.teacher) chips.push(`<span class="review-badge">老师: ${escapeHTML(meta.teacher)}</span>`);
+  if (meta.semester) chips.push(`<span class="review-badge">学期: ${escapeHTML(meta.semester)}</span>`);
+  if (meta.rating) chips.push(`<span class="review-badge">评分: ${escapeHTML(meta.rating)}</span>`);
+  return chips.length ? `<div class="review-meta">${chips.join("")}</div>` : "";
+}
+
+function postContentPreview(post) {
+  if (!isReviewTag(post.tag)) return escapeHTML(post.content);
+  const meta = parseReviewMeta(post.content);
+  return escapeHTML(meta.body || post.content);
+}
+
+function bindPostListInteractions(list) {
+  list.querySelectorAll(".post-card").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = parseInt(el.dataset.id);
+      state.selectedPost = state.posts.find(p => p.id === id);
+      state.page = "detail";
+      render();
+    });
+  });
+
+  list.querySelectorAll("[data-like]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.like);
+      try {
+        const data = await apiFetch(`/api/posts/${id}/like`, { method: "POST" });
+        btn.classList.toggle("liked", data.liked);
+        btn.innerHTML = (data.liked ? "❤️" : "🤍") + ` <span class="like-count">${data.like_count}</span>`;
+        const p = state.posts.find(x => x.id === id);
+        if (p) { p.is_liked = data.liked; p.like_count = data.like_count; }
+      } catch(err) { console.error(err); }
+    });
+  });
+}
+
+// ---- NEW POST MODAL ----
+let newPostTag = "", newPostContent = "", newPostMeta = { course: "", teacher: "", semester: "", rating: "" };
+
+function showNewPostModal() {
+  newPostTag = "";
+  newPostContent = "";
+  newPostMeta = { course: "", teacher: "", semester: "", rating: "" };
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal-content" id="modal-body">
+        <div class="modal-title"><span>✏️ 发表新树洞</span><button class="modal-close" id="modal-close">✕</button></div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:8px">选择标签</div>
+        <div class="tags-wrap">
+          ${TAGS.map(t=>`<span class="tag-select" data-stag="${t}">${t}</span>`).join("")}
+        </div>
+        <div id="review-fields"></div>
+        <textarea class="form-textarea" id="new-content" placeholder="说点什么吧……你的发言完全匿名 🌳" maxlength="2000"></textarea>
+        <div class="char-counter">预计发送长度：<span id="char-count">0</span> / 2000</div>
+        <div id="new-error"></div>
+        <button class="btn-primary" id="btn-submit" disabled>匿名发布</button>
+        <div class="modal-note">请遵守社区规范，文明发言</div>
+      </div>
+    </div>`;
+
+  document.getElementById("modal-overlay").addEventListener("click", e => { if(e.target.id==="modal-overlay") root.innerHTML=""; });
+  document.getElementById("modal-close").addEventListener("click", () => root.innerHTML="");
+  document.getElementById("modal-body").addEventListener("click", e => e.stopPropagation());
+
+  document.querySelectorAll("[data-stag]").forEach(el => {
+    el.addEventListener("click", () => {
+      newPostTag = newPostTag === el.dataset.stag ? "" : el.dataset.stag;
+      document.querySelectorAll("[data-stag]").forEach(s => s.classList.toggle("active", s.dataset.stag === newPostTag));
+      renderReviewFields();
+      updatePostLength();
+      updateSubmitBtn();
+    });
+  });
+
+  const ta = document.getElementById("new-content");
+  ta.addEventListener("input", () => {
+    newPostContent = ta.value;
+    updatePostLength();
+    updateSubmitBtn();
+  });
+  ta.focus();
+
+  document.getElementById("btn-submit").addEventListener("click", submitNewPost);
+}
+
+function renderReviewFields() {
+  const box = document.getElementById("review-fields");
+  if (!box) return;
+
+  if (!isReviewTag(newPostTag)) {
+    box.innerHTML = "";
+    return;
+  }
+
+  const teacherRequired = newPostTag === "老师评价";
+  box.innerHTML = `
+    <div class="review-fields">
+      <div class="review-tip">该标签支持结构化评价，发布后会自动整理为标准格式，方便检索和查看。</div>
+      <div class="review-grid">
+        <div class="review-item">
+          <label>课程名称（必填）</label>
+          <input id="meta-course" data-meta="course" placeholder="例如：高等数学A(2)" value="${escapeAttr(newPostMeta.course)}">
+        </div>
+        <div class="review-item">
+          <label>老师姓名（${teacherRequired ? "必填" : "选填"}）</label>
+          <input id="meta-teacher" data-meta="teacher" placeholder="例如：张老师" value="${escapeAttr(newPostMeta.teacher)}">
+        </div>
+        <div class="review-item">
+          <label>学期（选填）</label>
+          <input id="meta-semester" data-meta="semester" placeholder="例如：2025-2026-1" value="${escapeAttr(newPostMeta.semester)}">
+        </div>
+        <div class="review-item">
+          <label>综合评分（必填）</label>
+          <select id="meta-rating" data-meta="rating">
+            <option value="">请选择</option>
+            <option value="1/5" ${newPostMeta.rating==="1/5"?"selected":""}>1 / 5</option>
+            <option value="2/5" ${newPostMeta.rating==="2/5"?"selected":""}>2 / 5</option>
+            <option value="3/5" ${newPostMeta.rating==="3/5"?"selected":""}>3 / 5</option>
+            <option value="4/5" ${newPostMeta.rating==="4/5"?"selected":""}>4 / 5</option>
+            <option value="5/5" ${newPostMeta.rating==="5/5"?"selected":""}>5 / 5</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+
+  box.querySelectorAll("[data-meta]").forEach(el => {
+    el.addEventListener("input", () => {
+      newPostMeta[el.dataset.meta] = el.value;
+      updatePostLength();
+      updateSubmitBtn();
+    });
+    el.addEventListener("change", () => {
+      newPostMeta[el.dataset.meta] = el.value;
+      updatePostLength();
+      updateSubmitBtn();
+    });
+  });
+}
+
+function buildPostPayloadContent() {
+  const content = newPostContent.trim();
+  if (!isReviewTag(newPostTag)) return content;
+
+  const lines = [];
+  if (newPostMeta.course.trim()) lines.push(`【课程】${newPostMeta.course.trim()}`);
+  if (newPostMeta.teacher.trim()) lines.push(`【老师】${newPostMeta.teacher.trim()}`);
+  if (newPostMeta.semester.trim()) lines.push(`【学期】${newPostMeta.semester.trim()}`);
+  if (newPostMeta.rating.trim()) lines.push(`【评分】${newPostMeta.rating.trim()}`);
+  lines.push("【评价】");
+  lines.push(content);
+  return lines.join("\n");
+}
+
+function updatePostLength() {
+  const el = document.getElementById("char-count");
+  if (!el) return;
+  const payload = buildPostPayloadContent();
+  el.textContent = payload.length;
+}
+
+function updateSubmitBtn() {
+  const btn = document.getElementById("btn-submit");
+  if (!btn) return;
+  let valid = !!newPostContent.trim() && !!newPostTag;
+
+  if (valid && isReviewTag(newPostTag)) {
+    valid = !!newPostMeta.course.trim() && !!newPostMeta.rating.trim();
+    if (newPostTag === "老师评价") valid = valid && !!newPostMeta.teacher.trim();
+  }
+  btn.disabled = !valid;
+}
+
+async function submitNewPost() {
+  const btn = document.getElementById("btn-submit");
+  const errEl = document.getElementById("new-error");
+  btn.disabled = true; btn.textContent = "发布中...";
+  errEl.innerHTML = "";
+
+  const payloadContent = buildPostPayloadContent();
+  if (payloadContent.length > 2000) {
+    errEl.innerHTML = `<div class="form-error">内容过长（${payloadContent.length}），请删减到 2000 字以内</div>`;
+    btn.disabled = false; btn.textContent = "匿名发布";
+    return;
+  }
+
+  try {
+    const post = await apiFetch("/api/posts/", { method:"POST", body:{ content:payloadContent, tag:newPostTag } });
+    state.posts.unshift(post);
+    document.getElementById("modal-root").innerHTML = "";
+    renderPostList();
+  } catch(e) {
+    errEl.innerHTML = `<div class="form-error">${e.message}</div>`;
+    btn.disabled = false; btn.textContent = "匿名发布";
+  }
+}
+
+function renderPostList() {
+  const list = document.getElementById("post-list");
+  if (!list) return;
+
+  if (state.posts.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">🌲</div><div style="font-size:16px;margin-bottom:6px">这里还很安静</div><div>来发第一条树洞吧</div></div>`;
+    return;
+  }
+
+  const posts = filteredPosts();
+  if (posts.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><div style="font-size:16px;margin-bottom:6px">没有找到相关内容</div><div>试试换个关键词或标签</div></div>`;
+    return;
+  }
+
+  list.innerHTML = posts.map((p, i) => `
+    <div class="post-card" data-id="${p.id}" style="animation-delay:${i*60}ms">
+      <div class="post-header">
+        <div class="anon-info">
+          ${avatarHTML(p.id, p.anon_name)}
+          <div><div class="anon-name">${p.anon_name}</div><div class="anon-time">${timeAgo(p.created_at)}</div></div>
+        </div>
+        ${tagChipHTML(p.tag)}
+      </div>
+      ${reviewMetaHTML(p)}
+      <div class="post-content">${postContentPreview(p)}</div>
+      <div class="post-actions">
+        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
+        <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
+      </div>
+    </div>
+  `).join("");
+  bindPostListInteractions(list);
+}
+
+function detailContentHTML(post) {
+  if (!isReviewTag(post.tag)) {
+    return `<div class="detail-content">${escapeHTML(post.content)}</div>`;
+  }
+  const meta = parseReviewMeta(post.content);
+  return `
+    ${reviewMetaHTML(post)}
+    <div class="detail-content">${escapeHTML(meta.body || post.content)}</div>
+  `;
+}
+
+// ---- DETAIL ----
+function renderDetail() {
+  const p = state.selectedPost;
+  return `
+    <div class="container">
+      <div class="detail-header">
+        <button class="back-btn" id="btn-back">← 返回</button>
+        <span style="font-weight:600;font-size:15px">帖子详情</span>
+      </div>
+      <div class="detail-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="anon-info">
+            ${avatarHTML(p.id, p.anon_name, 32)}
+            <div><div style="font-size:14px;font-weight:600">${p.anon_name}</div><div class="anon-time">${timeAgo(p.created_at)}</div></div>
+          </div>
+          ${tagChipHTML(p.tag)}
+        </div>
+        ${detailContentHTML(p)}
+      </div>
+      <div class="section-title">💬 全部回复 (<span id="comment-count">…</span>)</div>
+      <div id="comments-list"><div class="empty-state">加载中...</div></div>
+      <div style="height:80px"></div>
+    </div>
+    <div class="comment-bar">
+      <input class="comment-input" id="comment-input" placeholder="写下你的回复..." maxlength="500">
+      <button class="send-btn" id="btn-send-comment">发送</button>
+    </div>`;
+}
+
+function bindDetail() {
+  document.getElementById("btn-back").addEventListener("click", () => { state.page = "feed"; state.selectedPost = null; render(); });
+  document.getElementById("btn-send-comment").addEventListener("click", submitComment);
+  document.getElementById("comment-input").addEventListener("keydown", e => { if(e.key==="Enter") submitComment(); });
+}
+
+async function loadComments() {
+  const list = document.getElementById("comments-list");
+  const countEl = document.getElementById("comment-count");
+  try {
+    state.comments = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`);
+    countEl.textContent = state.comments.length;
+    if (state.comments.length === 0) {
+      list.innerHTML = `<div class="empty-state">还没有回复，来说两句吧 ✍️</div>`;
+    } else {
+      list.innerHTML = state.comments.map((c, i) => `
+        <div class="comment-item" style="animation-delay:${i*50}ms">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            ${avatarHTML(c.id * 3, c.anon_name, 24)}
+            <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+            <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
+          </div>
+          <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
+        </div>
+      `).join("");
+    }
+  } catch(e) {
+    list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}</div>`;
+  }
+}
+
+async function submitComment() {
+  const input = document.getElementById("comment-input");
+  const content = input.value.trim();
+  if (!content) return;
+  const btn = document.getElementById("btn-send-comment");
+  btn.disabled = true; btn.textContent = "...";
+  try {
+    const c = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, { method:"POST", body:{content} });
+    state.comments.push(c);
+    input.value = "";
+    document.getElementById("comment-count").textContent = state.comments.length;
+    // Append
+    const list = document.getElementById("comments-list");
+    if (state.comments.length === 1) list.innerHTML = "";
+    list.innerHTML += `
+      <div class="comment-item" style="animation:fadeUp .3s ease-out">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          ${avatarHTML(c.id * 3, c.anon_name, 24)}
+          <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+          <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
+        </div>
+        <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
+      </div>`;
+    list.scrollTop = list.scrollHeight;
+  } catch(e) {
+    alert(e.message);
+  }
+  btn.disabled = false; btn.textContent = "发送";
+}
+
+// ============================================================
+// Boot
+// ============================================================
+render();
+</script>
+</body>
+</html>
