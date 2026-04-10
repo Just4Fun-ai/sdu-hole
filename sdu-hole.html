@@ -468,8 +468,33 @@ function parseServerDate(dateStr) {
 
 function avatarHTML(id, name, size=30) {
   const hue = ((id||0) * 67) % 360;
-  const ch = name ? name[2] || "?" : "?";
+  const ch = avatarText(name);
   return `<div class="anon-avatar" style="width:${size}px;height:${size}px;background:hsl(${hue},35%,88%);color:hsl(${hue},40%,40%)">${ch}</div>`;
+}
+
+function avatarText(name) {
+  const s = String(name || "").trim();
+  if (!s) return "?";
+  const asciiOnly = /^[A-Za-z0-9 _-]+$/.test(s);
+  if (asciiOnly) return s[0].toUpperCase();
+  return s[0];
+}
+
+function compactAnonName(name) {
+  const s = String(name || "匿名同学").trim();
+  if (!s) return "匿名同学";
+  if (s.length <= 6) return s;
+  return s.slice(0, 6) + "…";
+}
+
+function formatHoleNo(id, createdAt = null) {
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return "sdu-?";
+  const d = parseServerDate(createdAt);
+  const y = d ? String(d.getFullYear()).slice(-2) : "00";
+  const m = d ? String(d.getMonth() + 1).padStart(2, "0") : "00";
+  const day = d ? String(d.getDate()).padStart(2, "0") : "00";
+  return `sdu-${y}${m}${day}-${Math.floor(n)}`;
 }
 
 function isReviewTag(tag) {
@@ -1107,7 +1132,7 @@ function renderFeed() {
       <div class="feed-announcement" id="feed-announcement" data-id="${topNotice.id}">
         <div class="title">📌 公告置顶</div>
         <div>${escapeHTML(topNotice.content)}</div>
-        <div class="meta">#${topNotice.id} · ${timeAgo(topNotice.created_at)}</div>
+        <div class="meta">${formatHoleNo(topNotice.id, topNotice.created_at)} · ${timeAgo(topNotice.created_at)}</div>
       </div>` : ""}
       <div class="tag-bar">${tagPills}</div>
       <div class="post-list" id="post-list">
@@ -1486,7 +1511,7 @@ async function refreshNotifications() {
               type: "comment",
               created_at: c.created_at,
               post_id: p.id,
-              text: `${c.anon_name} 评论了你的帖子 #${p.id}`,
+              text: `${c.anon_name} 评论了你的帖子（${formatHoleNo(p.id, p.created_at)}）`,
             });
           }
         });
@@ -1861,7 +1886,7 @@ function renderPostList() {
       <div class="post-header">
         <div class="anon-info">
           ${avatarHTML(p.id, p.anon_name)}
-          <div><div class="anon-name">${p.anon_name}</div><div class="anon-time">#${p.id} · ${timeAgo(p.created_at)}</div></div>
+          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(compactAnonName(p.anon_name))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
         </div>
         ${tagChipHTML(p.tag)}
       </div>
@@ -1907,7 +1932,7 @@ function renderDetail() {
       </div>
       <div class="detail-card">
         <div class="detail-meta-row">
-          <div class="detail-meta-left">洞号 #${p.id}</div>
+          <div class="detail-meta-left">${formatHoleNo(p.id, p.created_at)}</div>
           <div class="detail-meta-actions">
             <button class="action-btn" id="detail-copy-id-btn">📋 复制洞号</button>
             <button class="action-btn" id="detail-share-btn">🔗 复制链接</button>
@@ -2275,7 +2300,7 @@ function bindAdminActions() {
   document.querySelectorAll("[data-admin-del-post]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminDelPost);
-      if (!confirm(`确认删除帖子 #${id} ?`)) return;
+      if (!confirm(`确认删除帖子（${formatHoleNo(id)}）?`)) return;
       try {
         await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE" });
         btn.closest(".comment-item")?.remove();
@@ -2285,7 +2310,7 @@ function bindAdminActions() {
   document.querySelectorAll("[data-admin-ban-post-author]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminBanPostAuthor);
-      if (!confirm(`确认禁言帖子 #${id} 的作者?`)) return;
+      if (!confirm(`确认禁言帖子作者（${formatHoleNo(id)}）?`)) return;
       try {
         await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST" });
         alert("已禁言作者");
