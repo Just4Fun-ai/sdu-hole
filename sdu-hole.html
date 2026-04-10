@@ -4,22 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>山大树洞 SDU Hole</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕳️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23A61B29'/%3E%3Ctext x='50' y='66' font-size='54' text-anchor='middle' fill='white' font-family='serif'%3E山%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai:wght@300;400;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #f6f5f0; --surface: #fff; --border: #e8e6df; --border-light: #f0eeea;
-    --accent: #b44a1c; --accent-hover: #9a3e17; --accent-soft: #fdf0ea; --accent-border: rgba(180,74,28,0.15);
-    --text: #2c2a25; --text2: #78756d; --text3: #a09d96;
-    --danger: #c53030;
-    --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
-    --shadow-hover: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+    --bg: #f4f2ef; --surface: #ffffff; --border: #e4ded8; --border-light: #efeae5;
+    --accent: #a61b29; --accent-hover: #8c1522; --accent-soft: #f9eef0; --accent-border: rgba(166,27,41,0.18);
+    --text: #2f2b28; --text2: #6f6963; --text3: #9a948d;
+    --danger: #c83d4a;
+    --shadow: 0 1px 3px rgba(43,32,24,0.05), 0 1px 2px rgba(43,32,24,0.03);
+    --shadow-hover: 0 6px 18px rgba(43,32,24,0.08), 0 2px 6px rgba(43,32,24,0.05);
     --r: 10px; --rl: 14px;
     --font: 'LXGW WenKai', 'Noto Serif SC', Georgia, serif;
     --font-sans: 'LXGW WenKai', 'Noto Sans SC', 'PingFang SC', sans-serif;
   }
-  body { background: var(--bg); color: var(--text); font-family: var(--font); }
+  body {
+    background:
+      radial-gradient(circle at 18% 10%, rgba(166,27,41,.06), transparent 30%),
+      radial-gradient(circle at 82% 88%, rgba(166,27,41,.05), transparent 35%),
+      var(--bg);
+    color: var(--text); font-family: var(--font);
+  }
   input:focus, textarea:focus { outline: none; border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important; }
   button { font-family: var(--font-sans); }
   ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
@@ -34,8 +40,8 @@
   /* ---- Login ---- */
   .login-page {
     min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
-    background: radial-gradient(circle at 20% 50%, rgba(180,74,28,0.04) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(180,74,28,0.03) 0%, transparent 40%);
+    background: radial-gradient(circle at 22% 40%, rgba(166,27,41,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 18%, rgba(166,27,41,0.06) 0%, transparent 42%);
   }
   .login-card {
     width:100%; max-width:400px; background:var(--surface); border-radius:20px; padding:40px 32px;
@@ -44,10 +50,12 @@
   .login-logo { text-align:center; margin-bottom:28px; }
   .logo-mark {
     width:56px; height:56px; border-radius:16px; margin:0 auto 14px;
-    background:linear-gradient(145deg, var(--accent), #d4622c);
-    display:flex; align-items:center; justify-content:center; font-size:26px;
-    box-shadow:0 4px 16px rgba(180,74,28,0.25);
+    background:linear-gradient(145deg, #be2a38, var(--accent));
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 16px rgba(166,27,41,0.28);
+    border:1px solid rgba(255,255,255,.35);
   }
+  .brand-glyph { color:#fff; font-size:30px; font-weight:700; line-height:1; font-family:'Noto Serif SC', serif; text-shadow:0 1px 0 rgba(0,0,0,.1); }
   .login-title { font-size:22px; font-weight:700; letter-spacing:1px; }
   .login-sub { font-size:13px; color:var(--text2); margin-top:6px; line-height:1.6; }
 
@@ -90,11 +98,12 @@
   .logo { display:flex; align-items:center; gap:10px; }
   .logo-sm {
     width:34px; height:34px; border-radius:10px;
-    background:linear-gradient(145deg, var(--accent), #d4622c);
+    background:linear-gradient(145deg, #be2a38, var(--accent));
     display:flex; align-items:center; justify-content:center; font-size:17px;
+    border:1px solid rgba(255,255,255,.35);
   }
-  .logo-text { font-size:19px; font-weight:700; letter-spacing:.5px; }
-  .badge-beta { font-size:10px; background:var(--accent); color:#fff; padding:2px 7px; border-radius:5px; font-weight:700; margin-left:4px; }
+  .logo-text { font-size:19px; font-weight:700; letter-spacing:.4px; color:#3b3430; }
+  .badge-beta { font-size:10px; background:#fcecef; color:var(--accent); border:1px solid var(--accent-border); padding:2px 7px; border-radius:5px; font-weight:700; margin-left:4px; }
   .btn-outline {
     background:none; border:1px solid var(--border); border-radius:8px;
     padding:6px 14px; font-size:12px; color:var(--text2); cursor:pointer; transition:all .2s;
@@ -106,7 +115,7 @@
     padding:6px 12px; border-radius:8px; font-size:13px; font-weight:500;
     cursor:pointer; border:none; transition:all .2s; background:transparent; color:var(--text3);
   }
-  .tab-btn.active { background:var(--text); color:var(--surface); }
+  .tab-btn.active { background:var(--accent); color:var(--surface); }
 
   .tag-bar { display:flex; gap:6px; overflow-x:auto; padding:12px 0; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .tag-bar::-webkit-scrollbar { display:none; }
@@ -178,7 +187,7 @@
   .fab {
     position:fixed; bottom:24px; right:24px; width:52px; height:52px; border-radius:14px;
     border:none; cursor:pointer;
-    background:linear-gradient(145deg, var(--accent), #d4622c); color:#fff;
+    background:linear-gradient(145deg, #be2a38, var(--accent)); color:#fff;
     font-size:24px; display:flex; align-items:center; justify-content:center;
     box-shadow:0 4px 20px rgba(180,74,28,0.35); z-index:50; transition:transform .2s;
   }
@@ -813,7 +822,7 @@ function renderLogin() {
       <div class="login-page">
         <div class="login-card">
           <div class="login-logo">
-            <div class="logo-mark">🕳️</div>
+            <div class="logo-mark"><span class="brand-glyph">山</span></div>
             <div class="login-title">山大树洞</div>
             <div class="login-sub">SDU Hole · 匿名校园社区</div>
           </div>
@@ -837,7 +846,7 @@ function renderLogin() {
       <div class="login-page">
         <div class="login-card">
           <div class="login-logo">
-            <div class="logo-mark">🕳️</div>
+            <div class="logo-mark"><span class="brand-glyph">山</span></div>
             <div class="login-title">山大树洞</div>
             <div class="login-sub">SDU Hole · 匿名校园社区</div>
           </div>
@@ -991,7 +1000,7 @@ function renderBind() {
     <div class="login-page">
       <div class="login-card">
         <div class="login-logo">
-          <div class="logo-mark">🕳️</div>
+          <div class="logo-mark"><span class="brand-glyph">山</span></div>
           <div class="login-title">绑定匿名昵称</div>
           <div class="login-sub">首次登录需要设置，后续会长期使用该昵称</div>
         </div>
@@ -1062,9 +1071,9 @@ function renderFeed() {
       <div class="feed-header">
         <div class="header-row">
           <div class="logo">
-            <div class="logo-sm">🕳️</div>
+            <div class="logo-sm"><span class="brand-glyph" style="font-size:17px">山</span></div>
             <span class="logo-text">山大树洞</span>
-            <span class="badge-beta">BETA</span>
+            <span class="badge-beta">校园版</span>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn-outline" id="btn-notify">消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
