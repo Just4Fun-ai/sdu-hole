@@ -412,6 +412,18 @@
     font-size:12px; color:var(--text2); white-space:nowrap;
     max-width:calc(100vw - 110px); overflow-x:auto;
   }
+  .legal-fab-close {
+    margin-left:4px;
+    border:none;
+    background:transparent;
+    color:var(--text3);
+    font-size:14px;
+    cursor:pointer;
+    line-height:1;
+    padding:2px 4px;
+    border-radius:6px;
+  }
+  .legal-fab-close:hover { background:var(--border-light); color:var(--text2); }
   .legal-fab a {
     color:var(--accent); text-decoration:none; font-weight:600;
     white-space:nowrap;
@@ -447,11 +459,12 @@
 </script>
 
 <div id="app"></div>
-<div class="legal-fab">
+<div class="legal-fab" id="legal-fab">
   <span>协议</span>
   <a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">用户协议</a>
   <span>|</span>
   <a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">隐私政策</a>
+  <button class="legal-fab-close" id="legal-fab-close" title="关闭">✕</button>
 </div>
 
 <script>
@@ -461,8 +474,11 @@
 let state = {
   token: sessionStorage.getItem("sdu_token") || "",
   isAdmin: false,
-  page: "feed",        // login | bind | feed | detail
+  page: "feed",        // login | bind | feed | me | detail
   posts: [],
+  mePosts: [],
+  meFavorites: [],
+  meLoading: false,
   selectedPost: null,
   comments: [],
   activeTag: "全部",
@@ -494,6 +510,19 @@ let state = {
     zoom: 1,
   },
 };
+
+function initLegalFab() {
+  const fab = document.getElementById("legal-fab");
+  const closeBtn = document.getElementById("legal-fab-close");
+  if (!fab || !closeBtn) return;
+  if (sessionStorage.getItem("sdu_legal_fab_hidden") === "1") {
+    fab.classList.add("hidden");
+  }
+  closeBtn.addEventListener("click", () => {
+    fab.classList.add("hidden");
+    sessionStorage.setItem("sdu_legal_fab_hidden", "1");
+  });
+}
 
 function loadJSON(key, fallback) {
   try {
@@ -864,6 +893,10 @@ function render() {
   } else if (state.page === "bind") {
     app.innerHTML = renderBind();
     bindBind();
+  } else if (state.page === "me") {
+    app.innerHTML = renderMe();
+    bindMe();
+    if (state.meLoading) loadMeData();
   } else if (state.page === "detail" && state.selectedPost) {
     app.innerHTML = renderDetail();
     bindDetail();
@@ -1258,8 +1291,7 @@ function renderFeed() {
             <span class="badge-beta">校园版</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-outline" id="btn-notify">消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
-            <button class="btn-outline" id="btn-block">屏蔽设置</button>
+            <button class="btn-outline" id="btn-me">我的${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
             ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
             <button class="btn-outline" id="btn-logout">退出登录</button>
           </div>
@@ -1267,11 +1299,6 @@ function renderFeed() {
         <div class="tab-bar">
           <button class="tab-btn ${state.order==="new"?"active":""}" data-order="new">🕐 最新</button>
           <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
-        </div>
-        <div class="tab-bar">
-          <button class="tab-btn ${state.feedMode==="all"?"active":""}" data-mode="all">全部</button>
-          <button class="tab-btn ${state.feedMode==="mine"?"active":""}" data-mode="mine">我的</button>
-          <button class="tab-btn ${state.feedMode==="favorites"?"active":""}" data-mode="favorites">收藏</button>
         </div>
         <div class="search-row">
           <input id="search-input" class="search-input" placeholder="搜索关键词（支持 tag:美食推荐 关键词）" value="${escapeAttr(state.keyword)}">
@@ -1304,7 +1331,136 @@ function renderFeed() {
     <div id="modal-root"></div>`;
 }
 
+function mePostListHTML(rows, emptyText) {
+  if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">${escapeHTML(emptyText)}</div>`;
+  return rows.map(p => `
+    <div class="comment-item" data-me-post="${p.id}">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div style="font-size:14px;font-weight:600;color:var(--text)">${escapeHTML((p.content || "").slice(0, 56) || "（无内容）")}</div>
+        ${tagChipHTML(p.tag)}
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div>
+    </div>
+  `).join("");
+}
+
+function renderMe() {
+  return `
+    <div class="container">
+      <div class="feed-header">
+        <div class="header-row">
+          <div class="logo">
+            <div class="logo-sm"><span class="brand-glyph" style="font-size:17px">我</span></div>
+            <span class="logo-text">我的主页</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-outline" id="btn-back-feed">返回首页</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-card" style="margin-bottom:12px">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:10px">个人中心</div>
+        <div class="tool-row">
+          <button class="btn-outline" id="btn-me-notify">消息中心${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
+          <button class="btn-outline" id="btn-me-appeal">申诉中心</button>
+          <button class="btn-outline" id="btn-me-block">屏蔽设置</button>
+          ${state.isAdmin ? `<button class="btn-outline" id="btn-me-admin">管理面板</button>` : ""}
+          <button class="btn-outline" id="btn-me-refresh">刷新数据</button>
+          <button class="btn-outline" id="btn-me-logout">退出登录</button>
+        </div>
+      </div>
+
+      <div class="detail-card" style="margin-bottom:12px">
+        <div class="section-header-row">
+          <div class="section-title" style="border:none;margin:0;padding:0">我的帖子（最近20条）</div>
+        </div>
+        <div id="me-posts-list">${state.meLoading ? `<div class="empty-state" style="padding:18px 10px">加载中...</div>` : mePostListHTML(state.mePosts, "你还没有发布帖子")}</div>
+      </div>
+
+      <div class="detail-card">
+        <div class="section-header-row">
+          <div class="section-title" style="border:none;margin:0;padding:0">我的收藏（最近20条）</div>
+        </div>
+        <div id="me-favs-list">${state.meLoading ? `<div class="empty-state" style="padding:18px 10px">加载中...</div>` : mePostListHTML(state.meFavorites, "你还没有收藏帖子")}</div>
+      </div>
+      <div style="height:80px"></div>
+    </div>
+    <div id="modal-root"></div>`;
+}
+
+async function loadMeData() {
+  try {
+    const [mine, favs] = await Promise.all([
+      apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
+      apiFetch("/api/posts/?favorited=true&order=new&page=1&size=20"),
+    ]);
+    state.mePosts = mine || [];
+    state.meFavorites = favs || [];
+  } catch (e) {
+    showToast(e.message || "加载我的数据失败");
+  } finally {
+    state.meLoading = false;
+    if (state.page === "me") render();
+  }
+}
+
+function openMePage() {
+  state.page = "me";
+  state.meLoading = true;
+  render();
+}
+
+function bindMe() {
+  const backBtn = document.getElementById("btn-back-feed");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      state.page = "feed";
+      state.feedDirty = true;
+      render();
+    });
+  }
+  document.getElementById("btn-me-notify")?.addEventListener("click", showNotifications);
+  document.getElementById("btn-me-appeal")?.addEventListener("click", showAppealCenter);
+  document.getElementById("btn-me-block")?.addEventListener("click", showBlockSettings);
+  document.getElementById("btn-me-admin")?.addEventListener("click", showAdminPanel);
+  document.getElementById("btn-me-refresh")?.addEventListener("click", () => {
+    state.meLoading = true;
+    render();
+  });
+  document.getElementById("btn-me-logout")?.addEventListener("click", () => {
+    state.token = "";
+    state.isAdmin = false;
+    state.posts = [];
+    state.mePosts = [];
+    state.meFavorites = [];
+    state.announcements = [];
+    state.notifications = [];
+    state.unreadNoticeCount = 0;
+    state.feedDirty = true;
+    sessionStorage.removeItem("sdu_token");
+    render();
+  });
+  document.querySelectorAll("[data-me-post]").forEach(el => {
+    el.addEventListener("click", async () => {
+      const id = parseInt(el.dataset.mePost || "", 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        state.selectedPost = await apiFetch(`/api/posts/${id}`);
+        state.page = "detail";
+        state.detailOnlyAuthor = false;
+        syncPostQuery(id);
+        render();
+      } catch (e) {
+        showToast("帖子可能已删除");
+      }
+    });
+  });
+  refreshNotifications();
+}
+
 function bindFeed() {
+  state.feedMode = "all";
   document.getElementById("btn-logout").addEventListener("click", () => {
     state.token = "";
     state.isAdmin = false;
@@ -1318,10 +1474,8 @@ function bindFeed() {
   });
   const refreshBtn = document.getElementById("btn-refresh");
   if (refreshBtn) refreshBtn.addEventListener("click", () => resetAndLoadPosts());
-  const notifyBtn = document.getElementById("btn-notify");
-  if (notifyBtn) notifyBtn.addEventListener("click", showNotifications);
-  const blockBtn = document.getElementById("btn-block");
-  if (blockBtn) blockBtn.addEventListener("click", showBlockSettings);
+  const meBtn = document.getElementById("btn-me");
+  if (meBtn) meBtn.addEventListener("click", openMePage);
   const announceBtn = document.getElementById("btn-announce");
   if (announceBtn) announceBtn.addEventListener("click", showAnnouncementModal);
   const loadMoreBtn = document.getElementById("btn-load-more");
@@ -1342,7 +1496,6 @@ function bindFeed() {
   document.querySelectorAll(".tab-btn").forEach(el => {
     el.addEventListener("click", () => {
       if (el.dataset.order) state.order = el.dataset.order;
-      if (el.dataset.mode) state.feedMode = el.dataset.mode;
       state.feedDirty = true;
       render();
     });
@@ -1720,9 +1873,13 @@ async function refreshNotifications() {
       const t = new Date(n.created_at).getTime();
       return Number.isFinite(t) && t > lastRead;
     }).length;
-    const btn = document.getElementById("btn-notify");
-    if (btn) {
-      btn.innerHTML = `消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}`;
+    const meBtn = document.getElementById("btn-me");
+    if (meBtn) {
+      meBtn.innerHTML = `我的${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}`;
+    }
+    const meNotifyBtn = document.getElementById("btn-me-notify");
+    if (meNotifyBtn) {
+      meNotifyBtn.innerHTML = `消息中心${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}`;
     }
   } catch (_) {}
 }
@@ -1775,8 +1932,10 @@ async function showNotifications() {
   }
   localStorage.setItem("sdu_notice_read_at", String(Date.now()));
   state.unreadNoticeCount = 0;
-  const btn = document.getElementById("btn-notify");
-  if (btn) btn.innerHTML = "消息";
+  const meBtn = document.getElementById("btn-me");
+  if (meBtn) meBtn.innerHTML = "我的";
+  const meNotifyBtn = document.getElementById("btn-me-notify");
+  if (meNotifyBtn) meNotifyBtn.innerHTML = "消息中心";
 }
 
 function showAnnouncementModal() {
@@ -2767,6 +2926,7 @@ async function showAppealCenter() {
 // Boot
 // ============================================================
 render();
+initLegalFab();
 </script>
 </body>
 </html>
