@@ -13,6 +13,7 @@ from app.models.report import Report
 from app.schemas.post import PostCreate, PostResponse, CommentCreate, CommentResponse, ReportCreate
 from app.utils.security import get_current_user
 from app.services.filter import check_content
+from app.services.moderation import log_moderation_hit
 
 router = APIRouter(prefix="/api/posts", tags=["帖子"])
 
@@ -98,6 +99,16 @@ async def create_post(
         raise HTTPException(400, "标签不能为空")
     if len(tag) > 20:
         raise HTTPException(400, "标签不能超过20个字")
+    tag_ok, tag_msg = check_content(tag)
+    if not tag_ok:
+        await log_moderation_hit(
+            db,
+            user_id=user.id,
+            scene="tag",
+            content=tag,
+            reason=tag_msg or "标签命中敏感词",
+        )
+        raise HTTPException(400, tag_msg)
 
     # 内容检查
     content = req.content.strip()
@@ -108,6 +119,13 @@ async def create_post(
 
     ok, msg = check_content(content)
     if not ok:
+        await log_moderation_hit(
+            db,
+            user_id=user.id,
+            scene="post_content",
+            content=content,
+            reason=msg or "帖子命中敏感词",
+        )
         raise HTTPException(400, msg)
 
     post = Post(
@@ -266,6 +284,13 @@ async def create_comment(
 
     ok, msg = check_content(content)
     if not ok:
+        await log_moderation_hit(
+            db,
+            user_id=user.id,
+            scene="comment_content",
+            content=content,
+            reason=msg or "评论命中敏感词",
+        )
         raise HTTPException(400, msg)
 
     comment = Comment(

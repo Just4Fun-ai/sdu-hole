@@ -18,6 +18,8 @@ from app.schemas.auth import (
 from app.services.email import create_and_send_code, verify_code
 from app.utils.security import hash_student_id, create_access_token, get_current_user
 from app.utils.nickname import validate_nickname, generate_random_nickname
+from app.services.filter import check_content
+from app.services.moderation import log_moderation_hit
 from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
@@ -194,6 +196,17 @@ async def bind_nickname(
         raise HTTPException(status_code=400, detail="匿名昵称已绑定，不可修改")
 
     nickname = (req.nickname or "").strip()
+    ok_filter, msg_filter = check_content(nickname)
+    if not ok_filter:
+        await log_moderation_hit(
+            db,
+            user_id=user.id,
+            scene="nickname",
+            content=nickname,
+            reason=msg_filter or "昵称命中敏感词",
+        )
+        raise HTTPException(status_code=400, detail=msg_filter)
+
     ok, msg = validate_nickname(nickname)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)

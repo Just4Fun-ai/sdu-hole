@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.report import Report
+from app.models.moderation_log import ModerationLog
 from app.utils.security import get_current_user, ensure_admin
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
@@ -42,6 +43,34 @@ async def list_reports(
     ]
 
 
+@router.get("/moderation-hits", summary="查看敏感词命中记录（管理员）")
+async def list_moderation_hits(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    result = await db.execute(
+        select(ModerationLog)
+        .order_by(desc(ModerationLog.created_at))
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "user_id": r.user_id,
+            "scene": r.scene,
+            "content_preview": r.content_preview,
+            "reason": r.reason,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
 @router.delete("/posts/{post_id}", summary="管理员删除帖子")
 async def admin_delete_post(
     post_id: int,
@@ -70,4 +99,3 @@ async def admin_delete_comment(
         raise HTTPException(status_code=404, detail="评论不存在")
     comment.is_deleted = True
     return {"message": "评论已删除"}
-

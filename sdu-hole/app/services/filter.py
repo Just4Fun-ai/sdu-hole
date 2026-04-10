@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Iterable
 
 
@@ -52,6 +53,16 @@ _DEFAULT_WORDS = {
 
 
 _SENSITIVE_WORDS: set[str] = set()
+_SENSITIVE_PATTERNS = [
+    # 常见辱骂拆字绕过（如: 傻-逼 / 傻 逼）
+    re.compile(r"傻\W{0,3}逼"),
+    re.compile(r"煞\W{0,3}笔"),
+    re.compile(r"脑\W{0,3}残"),
+    # 极端暴力导向
+    re.compile(r"暴力\W{0,3}革命"),
+    re.compile(r"推翻\W{0,3}政府"),
+    re.compile(r"煽动\W{0,3}颠覆"),
+]
 
 
 def _normalize_text(text: str) -> str:
@@ -60,7 +71,10 @@ def _normalize_text(text: str) -> str:
     - 小写化
     - 去除空白与常见符号
     """
-    lowered = (text or "").lower()
+    normalized = unicodedata.normalize("NFKC", text or "")
+    lowered = normalized.lower()
+    # 去掉零宽字符
+    lowered = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff]", "", lowered)
     # 去除空白、下划线、常见中英文标点与分隔符
     return re.sub(r"[\s`~!@#$%^&*()\-_=+\[\]{}\\|;:'\",<.>/?，。！？；：“”‘’（）【】、《》…·]+", "", lowered)
 
@@ -101,6 +115,11 @@ def check_content(content: str) -> tuple[bool, str]:
     raw = content
     normalized = _normalize_text(content)
 
+    # 先跑模式匹配，拦截拆字/加符号绕过
+    for pattern in _SENSITIVE_PATTERNS:
+        if pattern.search(raw) or pattern.search(normalized):
+            return False, "内容包含违规词汇或不当表达，请修改后发布"
+
     for word in _iter_all_words():
         if word in raw or (normalized and word in normalized):
             return False, "内容包含违规词汇或不当表达，请修改后发布"
@@ -131,4 +150,3 @@ def load_words_from_file(filepath: str):
 
 # 模块导入时先构建内置词库
 _rebuild_word_set()
-
