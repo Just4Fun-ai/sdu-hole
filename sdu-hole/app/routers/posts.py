@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/posts", tags=["帖子"])
 
 VALID_TAGS = [
     "课程评价", "校园活动", "美食推荐", "游玩推荐",
-    "生活吐槽", "求助", "表白墙", "二手交易", "考研交流", "失物招领",
+    "生活吐槽", "求助", "表白墙", "二手交易", "考研交流", "失物招领", "公告",
 ]
 
 
@@ -49,6 +49,8 @@ async def list_posts(
 ):
     ensure_nickname_bound(user)
     query = select(Post).where(Post.is_deleted == False)
+    if not tag:
+        query = query.where(Post.tag != "公告")
 
     if tag:
         query = query.where(Post.tag == tag)
@@ -101,6 +103,53 @@ async def list_posts(
     ]
 
 
+@router.get("/announcements", summary="获取公告列表")
+async def list_announcements(
+    page: int = Query(1, ge=1),
+    size: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_nickname_bound(user)
+    query = (
+        select(Post)
+        .where(Post.is_deleted == False, Post.tag == "公告")
+        .order_by(desc(Post.created_at))
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    result = await db.execute(query)
+    posts = result.scalars().all()
+
+    post_ids = [p.id for p in posts]
+    liked_ids = set()
+    if post_ids:
+        liked_result = await db.execute(
+            select(Like.target_id).where(
+                Like.user_id == user.id,
+                Like.target_type == "post",
+                Like.target_id.in_(post_ids),
+            )
+        )
+        liked_ids = set(liked_result.scalars().all())
+
+    return [
+        PostResponse(
+            id=p.id,
+            anon_name=normalize_display_name(p.anon_name, f"同学{p.user_id}"),
+            content=p.content,
+            tag=p.tag,
+            like_count=p.like_count,
+            comment_count=p.comment_count,
+            created_at=p.created_at,
+            is_liked=p.id in liked_ids,
+            is_mine=p.user_id == user.id,
+            is_favorited=False,
+        )
+        for p in posts
+    ]
+
+
 @router.post("/", response_model=PostResponse, summary="发表帖子")
 async def create_post(
     req: PostCreate,
@@ -114,6 +163,8 @@ async def create_post(
         raise HTTPException(400, "标签不能为空")
     if len(tag) > 20:
         raise HTTPException(400, "标签不能超过20个字")
+    if tag == "公告" and not bool(user.is_admin):
+        raise HTTPException(403, "仅管理员可发布公告")
     tag_ok, tag_msg = check_content(tag)
     if not tag_ok:
         await log_moderation_hit(

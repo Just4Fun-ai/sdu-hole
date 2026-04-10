@@ -65,6 +65,12 @@ fi
 if [ -f '${APP_DIR}/deploy-config.js' ]; then
   sudo cp '${APP_DIR}/deploy-config.js' /var/www/sdu-hole/deploy-config.js
 fi
+if [ -f '${APP_DIR}/user-agreement.html' ]; then
+  sudo cp '${APP_DIR}/user-agreement.html' /var/www/sdu-hole/user-agreement.html
+fi
+if [ -f '${APP_DIR}/privacy-policy.html' ]; then
+  sudo cp '${APP_DIR}/privacy-policy.html' /var/www/sdu-hole/privacy-policy.html
+fi
 
 sudo systemctl restart sdu-hole
 sudo systemctl restart nginx

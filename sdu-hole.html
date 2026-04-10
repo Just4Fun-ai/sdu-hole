@@ -111,10 +111,17 @@
   .tag-bar { display:flex; gap:6px; overflow-x:auto; padding:12px 0; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .tag-bar::-webkit-scrollbar { display:none; }
   .search-row { margin-top:12px; }
+  .tool-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .search-input {
     width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
     background:var(--surface); color:var(--text); font-size:13px; font-family:var(--font-sans);
   }
+  .feed-announcement {
+    background:#fff7ed; border:1px solid #fed7aa; color:#9a3412;
+    border-radius:10px; padding:10px 12px; margin:8px 0 10px; font-size:13px; line-height:1.6;
+  }
+  .feed-announcement .title { font-weight:700; margin-bottom:4px; display:flex; gap:8px; align-items:center; }
+  .feed-announcement .meta { color:#b45309; font-size:12px; margin-top:4px; }
   .tag-pill {
     padding:6px 14px; border-radius:20px; font-size:13px; font-weight:500;
     cursor:pointer; white-space:nowrap; transition:all .2s; flex-shrink:0;
@@ -122,7 +129,19 @@
   }
   .tag-pill.active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
 
-  .post-list { display:flex; flex-direction:column; gap:10px; }
+  .post-list { display:flex; flex-direction:column; gap:10px; min-height:240px; }
+  .load-more-wrap { text-align:center; padding:10px 0 0; }
+  .toast {
+    position:fixed; left:50%; bottom:90px; transform:translateX(-50%);
+    background:#2f2d29; color:#fff; padding:10px 14px; border-radius:10px; z-index:300;
+    box-shadow:0 8px 24px rgba(0,0,0,.18); font-size:13px; opacity:0; pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .toast.show { opacity:1; }
+  .notify-dot {
+    display:inline-flex; min-width:18px; height:18px; align-items:center; justify-content:center;
+    border-radius:999px; background:var(--accent); color:#fff; font-size:11px; padding:0 6px; margin-left:4px;
+  }
 
   /* ---- Post Card ---- */
   .post-card {
@@ -320,6 +339,17 @@ let state = {
   order: "new",
   feedMode: "all", // all | mine | favorites
   keyword: "",
+  searchTag: "全部",
+  postsPage: 1,
+  pageSize: 20,
+  hasMorePosts: true,
+  loadingPosts: false,
+  feedDirty: true,
+  announcements: [],
+  unreadNoticeCount: 0,
+  notifications: [],
+  lastNoticeRefreshAt: 0,
+  blockRules: loadJSON("sdu_block_rules", { tags: [], keywords: [], names: [] }),
   detailOnlyAuthor: false,
   pendingPostId: null,
   deepLinkInitialized: false,
@@ -327,6 +357,37 @@ let state = {
   authChecking: false,
   loading: false,
 };
+
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function saveJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (_) {}
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  if (!msg) return;
+  let el = document.getElementById("global-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "global-toast";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
 
 const TAGS = ["课程评价", "校园活动", "美食推荐", "游玩推荐", "生活吐槽", "求助", "表白墙", "二手交易", "考研交流", "失物招领"];
 const TAG_COLORS = {
@@ -415,6 +476,29 @@ function getDisplayTags() {
     if (p.tag && p.tag.trim()) set.add(p.tag.trim());
   });
   return Array.from(set);
+}
+
+function parseSearchQuery(raw) {
+  const text = String(raw || "").trim();
+  const m = text.match(/^tag:([^\s]+)\s*(.*)$/i);
+  if (!m) return { tag: "全部", keyword: text.toLowerCase() };
+  return { tag: m[1].trim(), keyword: (m[2] || "").trim().toLowerCase() };
+}
+
+function isBlockedPost(p) {
+  const r = state.blockRules || { tags: [], keywords: [], names: [] };
+  if (r.tags.includes(p.tag)) return true;
+  if (r.names.includes(p.anon_name)) return true;
+  const whole = `${p.tag}\n${p.content}\n${p.anon_name}`.toLowerCase();
+  return (r.keywords || []).some(k => k && whole.includes(String(k).toLowerCase()));
+}
+
+function moderationFriendlyMessage(msg) {
+  const t = String(msg || "");
+  if (t.includes("敏感词") || t.includes("不允许") || t.includes("违规")) {
+    return `${t}。建议改为更客观中性表达后再试。`;
+  }
+  return t;
 }
 
 function getInitialPostId() {
@@ -526,7 +610,13 @@ function render() {
   } else {
     app.innerHTML = renderFeed();
     bindFeed();
-    loadPosts();
+    if (state.feedDirty || state.posts.length === 0) {
+      state.feedDirty = false;
+      resetAndLoadPosts();
+      refreshNotifications();
+    } else {
+      renderPostList();
+    }
   }
 }
 
@@ -811,6 +901,10 @@ async function verifyCode() {
     const data = await apiFetch("/api/auth/verify", { method:"POST", body:{student_id:loginStudentId, code:loginCode} });
     state.token = data.access_token;
     state.isAdmin = !!data.is_admin;
+    state.posts = [];
+    state.announcements = [];
+    state.notifications = [];
+    state.feedDirty = true;
     sessionStorage.setItem("sdu_token", state.token);
     state.authChecked = true;
     state.page = data.must_bind_nickname ? "bind" : "feed";
@@ -891,6 +985,7 @@ function renderFeed() {
   const tagPills = ["全部", ...getDisplayTags()].map(t =>
     `<span class="tag-pill ${state.activeTag===t?"active":""}" data-tag="${t}">${t}</span>`
   ).join("");
+  const topNotice = state.announcements[0];
 
   return `
     <div class="container">
@@ -902,6 +997,8 @@ function renderFeed() {
             <span class="badge-beta">BETA</span>
           </div>
           <div style="display:flex;gap:8px">
+            <button class="btn-outline" id="btn-notify">消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
+            <button class="btn-outline" id="btn-block">屏蔽设置</button>
             ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
             <button class="btn-outline" id="btn-logout">退出登录</button>
           </div>
@@ -916,12 +1013,25 @@ function renderFeed() {
           <button class="tab-btn ${state.feedMode==="favorites"?"active":""}" data-mode="favorites">收藏</button>
         </div>
         <div class="search-row">
-          <input id="search-input" class="search-input" placeholder="搜索关键词" value="${escapeAttr(state.keyword)}">
+          <input id="search-input" class="search-input" placeholder="搜索关键词（支持 tag:美食推荐 关键词）" value="${escapeAttr(state.keyword)}">
+        </div>
+        <div class="tool-row">
+          <button class="btn-outline" id="btn-refresh">刷新</button>
+          ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
         </div>
       </div>
+      ${topNotice ? `
+      <div class="feed-announcement" id="feed-announcement" data-id="${topNotice.id}">
+        <div class="title">📌 公告置顶</div>
+        <div>${escapeHTML(topNotice.content)}</div>
+        <div class="meta">#${topNotice.id} · ${timeAgo(topNotice.created_at)}</div>
+      </div>` : ""}
       <div class="tag-bar">${tagPills}</div>
       <div class="post-list" id="post-list">
         <div class="empty-state"><div class="icon">🌳</div>加载中...</div>
+      </div>
+      <div class="load-more-wrap">
+        <button class="btn-outline" id="btn-load-more" style="display:${state.hasMorePosts ? "inline-block":"none"}">加载更多</button>
       </div>
       <div style="height:80px"></div>
     </div>
@@ -933,39 +1043,108 @@ function bindFeed() {
   document.getElementById("btn-logout").addEventListener("click", () => {
     state.token = "";
     state.isAdmin = false;
+    state.posts = [];
+    state.announcements = [];
+    state.notifications = [];
+    state.unreadNoticeCount = 0;
+    state.feedDirty = true;
     sessionStorage.removeItem("sdu_token");
     render();
+  });
+  const refreshBtn = document.getElementById("btn-refresh");
+  if (refreshBtn) refreshBtn.addEventListener("click", () => resetAndLoadPosts());
+  const notifyBtn = document.getElementById("btn-notify");
+  if (notifyBtn) notifyBtn.addEventListener("click", showNotifications);
+  const blockBtn = document.getElementById("btn-block");
+  if (blockBtn) blockBtn.addEventListener("click", showBlockSettings);
+  const announceBtn = document.getElementById("btn-announce");
+  if (announceBtn) announceBtn.addEventListener("click", showAnnouncementModal);
+  const loadMoreBtn = document.getElementById("btn-load-more");
+  if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => loadPosts({ append: true }));
+  const topAnn = document.getElementById("feed-announcement");
+  if (topAnn) topAnn.addEventListener("click", async () => {
+    const id = parseInt(topAnn.dataset.id);
+    if (!Number.isFinite(id)) return;
+    try {
+      state.selectedPost = await apiFetch(`/api/posts/${id}`);
+      state.page = "detail";
+      syncPostQuery(id);
+      render();
+    } catch (e) {
+      showToast("公告详情加载失败");
+    }
   });
   document.querySelectorAll(".tab-btn").forEach(el => {
     el.addEventListener("click", () => {
       if (el.dataset.order) state.order = el.dataset.order;
       if (el.dataset.mode) state.feedMode = el.dataset.mode;
+      state.feedDirty = true;
       render();
     });
   });
   document.querySelectorAll(".tag-pill").forEach(el => {
-    el.addEventListener("click", () => { state.activeTag = el.dataset.tag; render(); });
+    el.addEventListener("click", () => {
+      state.activeTag = el.dataset.tag;
+      state.feedDirty = true;
+      render();
+    });
   });
   const searchInput = document.getElementById("search-input");
   if (searchInput) {
+    let t = null;
     searchInput.addEventListener("input", () => {
       state.keyword = searchInput.value;
-      renderPostList();
+      clearTimeout(t);
+      t = setTimeout(() => renderPostList(), 120);
     });
   }
   document.getElementById("btn-new").addEventListener("click", showNewPostModal);
   const adminBtn = document.getElementById("btn-admin");
   if (adminBtn) adminBtn.addEventListener("click", showAdminPanel);
+  refreshNotifications();
 }
 
-async function loadPosts() {
-  const list = document.getElementById("post-list");
+function resetAndLoadPosts() {
+  state.postsPage = 1;
+  state.hasMorePosts = true;
+  loadPosts({ append: false });
+}
+
+async function loadAnnouncements() {
   try {
-    const params = new URLSearchParams({ order: state.order, page: "1", size: "50" });
+    state.announcements = await apiFetch("/api/posts/announcements?page=1&size=3");
+  } catch (_) {
+    state.announcements = [];
+  }
+}
+
+async function loadPosts(opts = { append: false }) {
+  const list = document.getElementById("post-list");
+  const moreBtn = document.getElementById("btn-load-more");
+  if (state.loadingPosts) return;
+  state.loadingPosts = true;
+  if (moreBtn && opts.append) {
+    moreBtn.disabled = true;
+    moreBtn.textContent = "加载中...";
+  }
+  try {
+    const params = new URLSearchParams({
+      order: state.order,
+      page: String(state.postsPage),
+      size: String(state.pageSize),
+    });
     if (state.activeTag !== "全部") params.set("tag", state.activeTag);
     if (state.feedMode === "mine") params.set("mine", "true");
     if (state.feedMode === "favorites") params.set("favorited", "true");
-    state.posts = await apiFetch("/api/posts/?" + params);
+    const rows = await apiFetch("/api/posts/?" + params);
+    state.hasMorePosts = rows.length >= state.pageSize;
+    if (opts.append) state.posts = [...state.posts, ...rows];
+    else state.posts = rows;
+    if (rows.length > 0) {
+      if (opts.append) state.postsPage += 1;
+      else state.postsPage = 2;
+    }
+    if (!opts.append) await loadAnnouncements();
     if (state.pendingPostId) {
       const pid = state.pendingPostId;
       state.pendingPostId = null;
@@ -983,8 +1162,20 @@ async function loadPosts() {
       }
     }
     renderPostList();
+    const more = document.getElementById("btn-load-more");
+    if (more) {
+      more.style.display = state.hasMorePosts ? "inline-block" : "none";
+      more.disabled = false;
+      more.textContent = "加载更多";
+    }
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
+  } finally {
+    state.loadingPosts = false;
+    if (moreBtn && opts.append) {
+      moreBtn.disabled = false;
+      moreBtn.textContent = "加载更多";
+    }
   }
 }
 
@@ -1010,11 +1201,11 @@ function appendEmojiToInput(inputEl, emoji) {
 }
 
 function filteredPosts() {
-  const keyword = state.keyword.trim().toLowerCase();
-  if (!keyword) return state.posts;
-  return state.posts.filter(p =>
-    `${p.tag}\n${p.content}\n${p.anon_name}`.toLowerCase().includes(keyword)
-  );
+  const { tag, keyword } = parseSearchQuery(state.keyword);
+  let rows = state.posts.filter(p => !isBlockedPost(p));
+  if (tag && tag !== "全部") rows = rows.filter(p => p.tag === tag);
+  if (!keyword) return rows;
+  return rows.filter(p => `${p.tag}\n${p.content}\n${p.anon_name}`.toLowerCase().includes(keyword));
 }
 
 function reviewMetaHTML(post) {
@@ -1135,13 +1326,191 @@ function bindPostListInteractions(list) {
   });
 }
 
+function getDraftKeyForPost() {
+  return `sdu_draft_post_${state.token ? "login" : "guest"}`;
+}
+
+function getDraftKeyForComment(postId) {
+  return `sdu_draft_comment_${postId}_${state.token ? "login" : "guest"}`;
+}
+
+function showBlockSettings() {
+  const root = document.getElementById("modal-root");
+  const rules = state.blockRules || { tags: [], keywords: [], names: [] };
+  root.innerHTML = `
+    <div class="modal-overlay" id="block-overlay">
+      <div class="modal-content" id="block-body">
+        <div class="modal-title"><span>🔕 屏蔽设置</span><button class="modal-close" id="block-close">✕</button></div>
+        <div class="form-hint">命中规则的帖子将不在列表中显示（仅对你自己生效）。</div>
+        <div style="margin-top:10px">
+          <label class="form-label">屏蔽标签（逗号分隔）</label>
+          <input class="form-input" id="block-tags" value="${escapeAttr((rules.tags || []).join(","))}" placeholder="例如：表白墙,生活吐槽">
+        </div>
+        <div style="margin-top:10px">
+          <label class="form-label">屏蔽关键词（逗号分隔）</label>
+          <input class="form-input" id="block-keys" value="${escapeAttr((rules.keywords || []).join(","))}" placeholder="例如：作业,实验报告">
+        </div>
+        <div style="margin-top:10px">
+          <label class="form-label">屏蔽匿名昵称（逗号分隔）</label>
+          <input class="form-input" id="block-names" value="${escapeAttr((rules.names || []).join(","))}" placeholder="例如：孤独的狼">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn-outline" id="block-clear">清空规则</button>
+          <button class="btn-primary" id="block-save">保存设置</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => (root.innerHTML = "");
+  document.getElementById("block-close").addEventListener("click", close);
+  document.getElementById("block-overlay").addEventListener("click", (e) => { if (e.target.id === "block-overlay") close(); });
+  document.getElementById("block-body").addEventListener("click", (e) => e.stopPropagation());
+  document.getElementById("block-clear").addEventListener("click", () => {
+    state.blockRules = { tags: [], keywords: [], names: [] };
+    saveJSON("sdu_block_rules", state.blockRules);
+    close();
+    renderPostList();
+    showToast("已清空屏蔽规则");
+  });
+  document.getElementById("block-save").addEventListener("click", () => {
+    const split = (v) => String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+    state.blockRules = {
+      tags: split(document.getElementById("block-tags").value),
+      keywords: split(document.getElementById("block-keys").value),
+      names: split(document.getElementById("block-names").value),
+    };
+    saveJSON("sdu_block_rules", state.blockRules);
+    close();
+    renderPostList();
+    showToast("屏蔽设置已保存");
+  });
+}
+
+async function refreshNotifications() {
+  const now = Date.now();
+  if (now - (state.lastNoticeRefreshAt || 0) < 30000) return;
+  state.lastNoticeRefreshAt = now;
+  try {
+    const mine = await apiFetch("/api/posts/?mine=true&order=new&page=1&size=20");
+    const items = [];
+    for (const p of mine) {
+      if (p.comment_count <= 0) continue;
+      try {
+        const cs = await apiFetch(`/api/posts/${p.id}/comments?page=1&size=10`);
+        cs.forEach(c => {
+          if (!c.is_author) {
+            items.push({
+              id: `${p.id}-${c.id}`,
+              type: "comment",
+              created_at: c.created_at,
+              post_id: p.id,
+              text: `${c.anon_name} 评论了你的帖子 #${p.id}`,
+            });
+          }
+        });
+      } catch (_) {}
+    }
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    state.notifications = items.slice(0, 30);
+    const lastRead = Number(localStorage.getItem("sdu_notice_read_at") || "0");
+    state.unreadNoticeCount = state.notifications.filter(n => {
+      const t = new Date(n.created_at).getTime();
+      return Number.isFinite(t) && t > lastRead;
+    }).length;
+    const btn = document.getElementById("btn-notify");
+    if (btn) {
+      btn.innerHTML = `消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}`;
+    }
+  } catch (_) {}
+}
+
+async function showNotifications() {
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="notify-overlay">
+      <div class="modal-content" id="notify-body">
+        <div class="modal-title"><span>🔔 消息中心</span><button class="modal-close" id="notify-close">✕</button></div>
+        <div id="notify-list">${state.notifications.length ? "" : `<div class="empty-state">暂无新消息</div>`}</div>
+      </div>
+    </div>`;
+  const close = () => (root.innerHTML = "");
+  document.getElementById("notify-close").addEventListener("click", close);
+  document.getElementById("notify-overlay").addEventListener("click", (e) => { if (e.target.id === "notify-overlay") close(); });
+  document.getElementById("notify-body").addEventListener("click", (e) => e.stopPropagation());
+  const list = document.getElementById("notify-list");
+  if (state.notifications.length) {
+    list.innerHTML = state.notifications.map(n => `
+      <div class="comment-item" data-notice-post="${n.post_id}">
+        <div style="font-size:14px">${escapeHTML(n.text)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px">${timeAgo(n.created_at)}</div>
+      </div>
+    `).join("");
+    list.querySelectorAll("[data-notice-post]").forEach(el => {
+      el.addEventListener("click", async () => {
+        const pid = parseInt(el.dataset.noticePost);
+        try {
+          state.selectedPost = await apiFetch(`/api/posts/${pid}`);
+          state.page = "detail";
+          syncPostQuery(pid);
+          close();
+          render();
+        } catch (e) {
+          showToast("帖子已不存在");
+        }
+      });
+    });
+  }
+  localStorage.setItem("sdu_notice_read_at", String(Date.now()));
+  state.unreadNoticeCount = 0;
+  const btn = document.getElementById("btn-notify");
+  if (btn) btn.innerHTML = "消息";
+}
+
+function showAnnouncementModal() {
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="announce-overlay">
+      <div class="modal-content" id="announce-body">
+        <div class="modal-title"><span>📌 发布公告</span><button class="modal-close" id="announce-close">✕</button></div>
+        <div class="form-hint">公告会在首页置顶展示，建议简洁明确。</div>
+        <textarea class="form-textarea" id="announce-content" maxlength="300" placeholder="输入公告内容（最多300字）"></textarea>
+        <div id="announce-error"></div>
+        <button class="btn-primary" id="announce-submit">发布公告</button>
+      </div>
+    </div>`;
+  const close = () => (root.innerHTML = "");
+  document.getElementById("announce-close").addEventListener("click", close);
+  document.getElementById("announce-overlay").addEventListener("click", (e) => { if (e.target.id === "announce-overlay") close(); });
+  document.getElementById("announce-body").addEventListener("click", (e) => e.stopPropagation());
+  document.getElementById("announce-submit").addEventListener("click", async () => {
+    const err = document.getElementById("announce-error");
+    const btn = document.getElementById("announce-submit");
+    const content = document.getElementById("announce-content").value.trim();
+    if (!content) {
+      err.innerHTML = `<div class="form-error">公告内容不能为空</div>`;
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await apiFetch("/api/posts/", { method: "POST", body: { tag: "公告", content } });
+      close();
+      state.feedDirty = true;
+      render();
+      showToast("公告已发布");
+    } catch (e) {
+      err.innerHTML = `<div class="form-error">${escapeHTML(e.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+}
+
 // ---- NEW POST MODAL ----
 let newPostTag = "", newPostContent = "", newPostMeta = { course: "", semester: "", rating: "" };
 
 function showNewPostModal() {
-  newPostTag = "";
-  newPostContent = "";
-  newPostMeta = { course: "", semester: "", rating: "" };
+  const draft = loadJSON(getDraftKeyForPost(), null);
+  newPostTag = draft?.tag || "";
+  newPostContent = draft?.content || "";
+  newPostMeta = draft?.meta || { course: "", semester: "", rating: "" };
   const root = document.getElementById("modal-root");
   root.innerHTML = `
     <div class="modal-overlay" id="modal-overlay">
@@ -1153,7 +1522,7 @@ function showNewPostModal() {
         </div>
         <input class="form-input" id="custom-tag" placeholder="或输入自定义标签（最多20字）" maxlength="20" value="${escapeAttr(newPostTag)}">
         <div id="review-fields"></div>
-        <textarea class="form-textarea" id="new-content" placeholder="说点什么吧……你的发言完全匿名 🌳" maxlength="2000"></textarea>
+        <textarea class="form-textarea" id="new-content" placeholder="说点什么吧……你的发言完全匿名 🌳" maxlength="2000">${escapeHTML(newPostContent).replace(/<br>/g, "\n")}</textarea>
         <div class="emoji-bar">
           ${EMOJIS.map(e => `<button class="emoji-btn" data-post-emoji="${e}">${e}</button>`).join("")}
         </div>
@@ -1177,6 +1546,7 @@ function showNewPostModal() {
       renderReviewFields();
       updatePostLength();
       updateSubmitBtn();
+      saveJSON(getDraftKeyForPost(), { tag: newPostTag, content: newPostContent, meta: newPostMeta });
     });
   });
 
@@ -1188,6 +1558,7 @@ function showNewPostModal() {
       renderReviewFields();
       updatePostLength();
       updateSubmitBtn();
+      saveJSON(getDraftKeyForPost(), { tag: newPostTag, content: newPostContent, meta: newPostMeta });
     });
   }
 
@@ -1196,6 +1567,7 @@ function showNewPostModal() {
     newPostContent = ta.value;
     updatePostLength();
     updateSubmitBtn();
+    saveJSON(getDraftKeyForPost(), { tag: newPostTag, content: newPostContent, meta: newPostMeta });
   });
   document.querySelectorAll("[data-post-emoji]").forEach(btn => {
     btn.addEventListener("click", () => appendEmojiToInput(ta, btn.dataset.postEmoji));
@@ -1241,11 +1613,13 @@ function renderReviewFields() {
       newPostMeta[el.dataset.meta] = el.value;
       updatePostLength();
       updateSubmitBtn();
+      saveJSON(getDraftKeyForPost(), { tag: newPostTag, content: newPostContent, meta: newPostMeta });
     });
     el.addEventListener("change", () => {
       newPostMeta[el.dataset.meta] = el.value;
       updatePostLength();
       updateSubmitBtn();
+      saveJSON(getDraftKeyForPost(), { tag: newPostTag, content: newPostContent, meta: newPostMeta });
     });
   });
 }
@@ -1296,12 +1670,22 @@ async function submitNewPost() {
 
   try {
     const post = await apiFetch("/api/posts/", { method:"POST", body:{ content:payloadContent, tag:newPostTag.trim() } });
-    state.posts.unshift(post);
+    localStorage.removeItem(getDraftKeyForPost());
     state.activeTag = "全部";
+    state.feedDirty = true;
     document.getElementById("modal-root").innerHTML = "";
     render();
+    showToast("发布成功");
+    setTimeout(() => {
+      const card = document.querySelector(`.post-card[data-id="${post.id}"]`);
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.style.boxShadow = "0 0 0 2px rgba(180,74,28,.35)";
+        setTimeout(() => { card.style.boxShadow = ""; }, 1100);
+      }
+    }, 450);
   } catch(e) {
-    errEl.innerHTML = `<div class="form-error">${e.message}</div>`;
+    errEl.innerHTML = `<div class="form-error">${moderationFriendlyMessage(e.message)}</div>`;
     btn.disabled = false; btn.textContent = "匿名发布";
   }
 }
@@ -1427,7 +1811,14 @@ function bindDetail() {
     render();
   });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
+  const commentInputEl = document.getElementById("comment-input");
+  const draftKey = getDraftKeyForComment(state.selectedPost.id);
+  const draftVal = localStorage.getItem(draftKey) || "";
+  if (commentInputEl && draftVal) commentInputEl.value = draftVal;
   document.getElementById("comment-input").addEventListener("keydown", e => { if(e.key==="Enter") submitComment(); });
+  document.getElementById("comment-input").addEventListener("input", () => {
+    localStorage.setItem(draftKey, document.getElementById("comment-input").value || "");
+  });
   document.getElementById("btn-only-author").addEventListener("click", () => {
     state.detailOnlyAuthor = !state.detailOnlyAuthor;
     loadComments();
@@ -1642,13 +2033,15 @@ async function submitComment() {
       method:"POST",
       body:{content, parent_id: replyTargetCommentId}
     });
+    localStorage.removeItem(getDraftKeyForComment(state.selectedPost.id));
     input.value = "";
     replyTargetCommentId = null;
     const hint = document.getElementById("reply-hint");
     if (hint) hint.style.display = "none";
     await loadComments();
+    showToast("评论已发布");
   } catch(e) {
-    alert(e.message);
+    alert(moderationFriendlyMessage(e.message));
   }
   btn.disabled = false; btn.textContent = "发送";
 }
