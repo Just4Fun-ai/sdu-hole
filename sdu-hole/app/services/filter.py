@@ -24,6 +24,9 @@ _DEFAULT_WORDS = {
         "傻逼",
         "你这个逼",
         "你个逼",
+        "shabi",
+        "shab",
+        "shabi啊",
         "傻b",
         "傻x",
         "sb",
@@ -69,6 +72,7 @@ _SENSITIVE_PATTERNS = [
     # 常见辱骂拆字绕过（如: 傻-逼 / 傻 逼）
     re.compile(r"傻\W{0,3}逼"),
     re.compile(r"你\W{0,2}(?:这|个)\W{0,2}逼"),
+    re.compile(r"s\W{0,2}h\W{0,2}a\W{0,2}b\W{0,2}i", re.IGNORECASE),
     re.compile(r"s\W{0,2}b", re.IGNORECASE),
     re.compile(r"c\W{0,2}n\W{0,2}m", re.IGNORECASE),
     re.compile(r"煞\W{0,3}笔"),

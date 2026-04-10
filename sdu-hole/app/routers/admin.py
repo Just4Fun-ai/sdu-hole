@@ -99,3 +99,65 @@ async def admin_delete_comment(
         raise HTTPException(status_code=404, detail="评论不存在")
     comment.is_deleted = True
     return {"message": "评论已删除"}
+
+
+@router.get("/users", summary="查询用户（管理员）")
+async def list_users(
+    keyword: str = Query("", description="按昵称或邮箱模糊搜索"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    query = select(User).order_by(desc(User.id))
+    kw = (keyword or "").strip()
+    if kw:
+        like_kw = f"%{kw}%"
+        query = query.where((User.nickname.like(like_kw)) | (User.email.like(like_kw)))
+    query = query.offset((page - 1) * size).limit(size)
+    result = await db.execute(query)
+    users = result.scalars().all()
+    return [
+        {
+            "id": u.id,
+            "nickname": u.nickname,
+            "email": u.email,
+            "is_admin": bool(u.is_admin),
+            "is_banned": bool(u.is_banned),
+            "created_at": u.created_at,
+        }
+        for u in users
+    ]
+
+
+@router.post("/users/{user_id}/ban", summary="禁言用户（管理员）")
+async def ban_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.is_admin:
+        raise HTTPException(status_code=400, detail="管理员账号不可禁言")
+    target.is_banned = True
+    return {"message": "已禁言", "user_id": user_id}
+
+
+@router.post("/users/{user_id}/unban", summary="解除禁言（管理员）")
+async def unban_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    target.is_banned = False
+    return {"message": "已解除禁言", "user_id": user_id}
