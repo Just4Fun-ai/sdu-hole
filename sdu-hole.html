@@ -521,6 +521,7 @@ async function bootstrapAuth() {
 
 // ---- LOGIN ----
 let loginStep = "input", loginStudentId = "", loginCode = "", loginCountdown = 0, loginTimer = null;
+let loginAgreementAccepted = localStorage.getItem("sdu_agree_terms") === "1";
 let bindNickname = "";
 
 function renderLogin() {
@@ -542,9 +543,13 @@ function renderLogin() {
             ${emailPreview}
             <div class="form-hint">💡 控制台模式会打印在终端；SMTP 模式会发送到邮箱</div>
           </div>
+          <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
+            <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
+            <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
+          </label>
           <div id="login-error"></div>
-          <button class="btn-primary" id="btn-send" ${loginStudentId.length < 6 ? "disabled" : ""}>发送验证码</button>
-          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>登录即同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></div>
+          <button class="btn-primary" id="btn-send" ${(loginStudentId.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
       </div>`;
   } else {
@@ -562,20 +567,35 @@ function renderLogin() {
           </div>
           <input class="form-input code-input" id="code" placeholder="· · · · · ·" value="${loginCode}" maxlength="6">
           <div class="form-hint">💡 控制台模式看后端终端；SMTP 模式看邮箱收件箱/垃圾箱</div>
+          <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
+            <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
+            <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
+          </label>
           <div id="login-error"></div>
-          <button class="btn-primary" id="btn-verify" ${loginCode.length !== 6 ? "disabled" : ""}>验证并登录</button>
+          <button class="btn-primary" id="btn-verify" ${(loginCode.length !== 6 || !loginAgreementAccepted) ? "disabled" : ""}>验证并登录</button>
           <div style="text-align:center">
             <button class="resend-btn" id="btn-resend" style="color:${loginCountdown > 0 ? 'var(--text3)' : 'var(--accent)'}" ${loginCountdown > 0 ? "disabled" : ""}>
               ${loginCountdown > 0 ? loginCountdown + "s 后重新发送" : "重新发送验证码"}
             </button>
           </div>
-          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>继续即同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></div>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
       </div>`;
   }
 }
 
 function bindLogin() {
+  const agree = document.getElementById("agree-check");
+  const applyAgreementState = () => {
+    loginAgreementAccepted = !!(agree && agree.checked);
+    localStorage.setItem("sdu_agree_terms", loginAgreementAccepted ? "1" : "0");
+    const sendBtn = document.getElementById("btn-send");
+    if (sendBtn) sendBtn.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
+    const verifyBtn = document.getElementById("btn-verify");
+    if (verifyBtn) verifyBtn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
+  };
+  if (agree) agree.addEventListener("change", applyAgreementState);
+
   if (loginStep === "input") {
     const sid = document.getElementById("sid");
     const btn = document.getElementById("btn-send");
@@ -584,7 +604,7 @@ function bindLogin() {
     sid.addEventListener("input", () => {
       loginStudentId = sid.value.replace(/\D/g,"");
       sid.value = loginStudentId;
-      btn.disabled = loginStudentId.length < 6;
+      btn.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
       // update email preview
       const parent = sid.parentElement;
       let ep = parent.querySelector(".email-preview");
@@ -594,6 +614,7 @@ function bindLogin() {
       } else if (ep) { ep.remove(); }
     });
     sid.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
+    applyAgreementState();
     btn.addEventListener("click", sendCode);
   } else {
     const code = document.getElementById("code");
@@ -603,15 +624,21 @@ function bindLogin() {
     code.addEventListener("input", () => {
       loginCode = code.value.replace(/\D/g,"").slice(0,6);
       code.value = loginCode;
-      btn.disabled = loginCode.length !== 6;
+      btn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
     });
     code.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
+    applyAgreementState();
     btn.addEventListener("click", verifyCode);
     resend.addEventListener("click", () => { if(loginCountdown===0) sendCode(); });
   }
 }
 
 async function sendCode() {
+  if (!loginAgreementAccepted) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
+    return;
+  }
   const errEl = document.getElementById("login-error");
   const btn = document.getElementById("btn-send") || document.getElementById("btn-resend");
   if (btn) btn.disabled = true;
@@ -635,6 +662,11 @@ async function sendCode() {
 }
 
 async function verifyCode() {
+  if (!loginAgreementAccepted) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
+    return;
+  }
   const errEl = document.getElementById("login-error");
   const btn = document.getElementById("btn-verify");
   btn.disabled = true; btn.textContent = "验证中...";
