@@ -197,22 +197,6 @@
     cursor:pointer;
     padding:0;
   }
-  .hole-jump-row {
-    display:flex;
-    gap:8px;
-    margin-top:8px;
-    flex-wrap:wrap;
-  }
-  .hole-jump-input {
-    flex:1;
-    min-width:180px;
-    height:36px;
-    border:1px solid var(--border);
-    border-radius:10px;
-    padding:0 12px;
-    font-size:14px;
-    background:#fff;
-  }
   .img-viewer {
     position: fixed;
     inset: 0;
@@ -644,6 +628,21 @@ function parseHoleIdInput(raw) {
   if (!m) return null;
   const id = parseInt(m[1], 10);
   return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function parseHoleIdFromSearch(raw) {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return null;
+  // 仅当用户明确表达“洞号直达”意图时触发，避免普通数字关键词误跳转
+  if (
+    text.startsWith("sdu-") ||
+    text.startsWith("洞号:") ||
+    text.startsWith("hole:") ||
+    text.startsWith("#")
+  ) {
+    return parseHoleIdInput(text);
+  }
+  return null;
 }
 
 async function jumpToHole(raw) {
@@ -1301,15 +1300,11 @@ function renderFeed() {
           <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
         </div>
         <div class="search-row">
-          <input id="search-input" class="search-input" placeholder="搜索关键词（支持 tag:美食推荐 关键词）" value="${escapeAttr(state.keyword)}">
+          <input id="search-input" class="search-input" placeholder="搜索关键词 / 洞号直达（示例：tag:美食推荐 关键词 或 sdu-260410-12）" value="${escapeAttr(state.keyword)}">
         </div>
         <div class="tool-row">
           <button class="btn-outline" id="btn-refresh">刷新</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
-        </div>
-        <div class="hole-jump-row">
-          <input id="hole-jump-input" class="hole-jump-input" placeholder="洞号直达：输入 sdu-260410-12 或 12">
-          <button class="btn-outline" id="btn-hole-jump">直达</button>
         </div>
       </div>
       ${topNotice ? `
@@ -1515,20 +1510,16 @@ function bindFeed() {
       clearTimeout(t);
       t = setTimeout(() => renderPostList(), 120);
     });
-  }
-  const holeInput = document.getElementById("hole-jump-input");
-  const holeBtn = document.getElementById("btn-hole-jump");
-  if (holeBtn && holeInput) {
-    const runJump = async () => {
+    searchInput.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const holeId = parseHoleIdFromSearch(searchInput.value);
+      if (!holeId) return;
+      e.preventDefault();
       try {
-        await jumpToHole(holeInput.value);
-      } catch (e) {
-        showToast(e.message || "洞号无效或帖子不存在");
+        await jumpToHole(searchInput.value);
+      } catch (err) {
+        showToast(err.message || "洞号无效或帖子不存在");
       }
-    };
-    holeBtn.addEventListener("click", runJump);
-    holeInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") runJump();
     });
   }
   document.getElementById("btn-new").addEventListener("click", showNewPostModal);
