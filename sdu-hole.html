@@ -276,6 +276,7 @@
 // ============================================================
 let state = {
   token: sessionStorage.getItem("sdu_token") || "",
+  isAdmin: false,
   page: "feed",        // login | bind | feed | detail
   posts: [],
   selectedPost: null,
@@ -449,9 +450,11 @@ async function bootstrapAuth() {
   state.authChecking = true;
   try {
     const me = await apiFetch("/api/auth/me");
+    state.isAdmin = !!me.is_admin;
     state.page = me.must_bind_nickname ? "bind" : "feed";
   } catch (e) {
     state.token = "";
+    state.isAdmin = false;
     sessionStorage.removeItem("sdu_token");
     state.page = "login";
   } finally {
@@ -584,6 +587,7 @@ async function verifyCode() {
   try {
     const data = await apiFetch("/api/auth/verify", { method:"POST", body:{student_id:loginStudentId, code:loginCode} });
     state.token = data.access_token;
+    state.isAdmin = !!data.is_admin;
     sessionStorage.setItem("sdu_token", state.token);
     state.authChecked = true;
     state.page = data.must_bind_nickname ? "bind" : "feed";
@@ -696,7 +700,10 @@ function renderFeed() {
 
 function bindFeed() {
   document.getElementById("btn-logout").addEventListener("click", () => {
-    state.token = ""; sessionStorage.removeItem("sdu_token"); render();
+    state.token = "";
+    state.isAdmin = false;
+    sessionStorage.removeItem("sdu_token");
+    render();
   });
   document.querySelectorAll(".tab-btn").forEach(el => {
     el.addEventListener("click", () => { state.order = el.dataset.order; render(); });
@@ -818,6 +825,35 @@ function bindPostListInteractions(list) {
         await apiFetch(`/api/posts/${id}`, { method: "DELETE" });
         state.posts = state.posts.filter(p => p.id !== id);
         renderPostList();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  list.querySelectorAll("[data-admin-delete-post]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.adminDeletePost);
+      if (!confirm("确认以管理员身份删除这条帖子吗？")) return;
+      try {
+        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE" });
+        state.posts = state.posts.filter(p => p.id !== id);
+        renderPostList();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  list.querySelectorAll("[data-ban-author]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.banAuthor);
+      if (!confirm("确认禁言该帖作者吗？")) return;
+      try {
+        const data = await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST" });
+        alert(data.message || "已禁言");
       } catch (err) {
         alert(err.message);
       }
@@ -1027,6 +1063,8 @@ function renderPostList() {
         <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
         <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
         ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">🗑 删除</button>` : ""}
+        ${state.isAdmin ? `<button class="action-btn warn" data-admin-delete-post="${p.id}">🛠 管理删除</button>` : ""}
+        ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" data-ban-author="${p.id}">⛔ 禁言作者</button>` : ""}
       </div>
     </div>
   `).join("");
@@ -1068,6 +1106,8 @@ function renderDetail() {
           </button>
           <button class="action-btn warn" id="detail-report-btn">🚩 举报帖子</button>
           ${p.is_mine ? `<button class="action-btn warn" id="detail-delete-btn">🗑 删除帖子</button>` : ""}
+          ${state.isAdmin ? `<button class="action-btn warn" id="detail-admin-delete-btn">🛠 管理删除</button>` : ""}
+          ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" id="detail-ban-author-btn">⛔ 禁言作者</button>` : ""}
         </div>
       </div>
       <div class="section-title">💬 全部回复 (<span id="comment-count">…</span>)</div>
@@ -1127,6 +1167,31 @@ function bindDetail() {
         state.selectedPost = null;
         state.page = "feed";
         render();
+      } catch (e) { alert(e.message); }
+    });
+  }
+
+  const adminDeleteBtn = document.getElementById("detail-admin-delete-btn");
+  if (adminDeleteBtn) {
+    adminDeleteBtn.addEventListener("click", async () => {
+      if (!confirm("确认以管理员身份删除这条帖子吗？")) return;
+      try {
+        await apiFetch(`/api/admin/posts/${state.selectedPost.id}`, { method: "DELETE" });
+        state.posts = state.posts.filter(p => p.id !== state.selectedPost.id);
+        state.selectedPost = null;
+        state.page = "feed";
+        render();
+      } catch (e) { alert(e.message); }
+    });
+  }
+
+  const banAuthorBtn = document.getElementById("detail-ban-author-btn");
+  if (banAuthorBtn) {
+    banAuthorBtn.addEventListener("click", async () => {
+      if (!confirm("确认禁言该帖作者吗？")) return;
+      try {
+        const data = await apiFetch(`/api/admin/posts/${state.selectedPost.id}/ban-author`, { method: "POST" });
+        alert(data.message || "已禁言");
       } catch (e) { alert(e.message); }
     });
   }

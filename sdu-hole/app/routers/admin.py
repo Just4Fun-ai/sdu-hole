@@ -86,6 +86,29 @@ async def admin_delete_post(
     return {"message": "帖子已删除"}
 
 
+@router.post("/posts/{post_id}/ban-author", summary="禁言帖子作者（管理员）")
+async def ban_post_author(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    post_result = await db.execute(select(Post).where(Post.id == post_id))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    user_result = await db.execute(select(User).where(User.id == post.user_id))
+    target = user_result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="作者不存在")
+    if target.is_admin:
+        raise HTTPException(status_code=400, detail="管理员账号不可禁言")
+
+    target.is_banned = True
+    return {"message": "已禁言该帖子作者", "user_id": target.id}
+
+
 @router.delete("/comments/{comment_id}", summary="管理员删除评论")
 async def admin_delete_comment(
     comment_id: int,
