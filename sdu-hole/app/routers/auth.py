@@ -64,7 +64,11 @@ async def random_nickname(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/send-code", summary="发送验证码")
-async def send_code(req: SendCodeRequest, request: Request):
+async def send_code(
+    req: SendCodeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """
     输入学号，系统自动拼接 @mail.sdu.edu.cn 并发送验证码。
     开发模式下验证码会打印在控制台。
@@ -99,7 +103,7 @@ async def send_code(req: SendCodeRequest, request: Request):
     email = f"{sid}{settings.ALLOWED_EMAIL_SUFFIX}"
 
     try:
-        await create_and_send_code(email)
+        await create_and_send_code(db, email)
         _send_ip_hits.setdefault(client_ip, []).append(now)
         _send_sid_hits.setdefault(sid, []).append(now)
     except ValueError as e:
@@ -129,7 +133,8 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
         wait_seconds = int(blocked_until - now)
         raise HTTPException(status_code=429, detail=f"验证失败次数过多，请{wait_seconds}秒后再试")
 
-    if not verify_code(email, req.code):
+    ok_code, verify_reason = await verify_code(db, email, req.code)
+    if not ok_code:
         fail_hits = _prune_hits(
             _verify_fail_hits,
             email,
@@ -144,7 +149,9 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
                 status_code=429,
                 detail=f"验证失败次数过多，请{settings.VERIFY_BLOCK_SECONDS}秒后再试",
             )
-        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        if verify_reason == "expired":
+            raise HTTPException(status_code=400, detail="验证码已过期，请重新发送")
+        raise HTTPException(status_code=400, detail="验证码错误，请检查后重试")
 
     # 验证成功，清理失败计数
     _verify_fail_hits.pop(email, None)

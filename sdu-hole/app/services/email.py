@@ -1,16 +1,16 @@
 import random
 import socket
 import time
-from typing import Dict, Tuple
+from datetime import datetime, timedelta
+from typing import Literal
 
 import aiosmtplib
 from email.mime.text import MIMEText
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-
-# 内存缓存验证码: {email: (code, expire_timestamp)}
-# 生产环境应替换为 Redis
-_code_store: Dict[str, Tuple[str, float]] = {}
+from app.models.email_code import EmailCode
 
 
 def generate_code() -> str:
@@ -98,35 +98,63 @@ def _format_smtp_error(error: Exception) -> str:
     return f"SMTP 发送失败：{error}"
 
 
-async def create_and_send_code(email: str) -> str:
-    """生成验证码 -> 缓存 -> 发送"""
-    # 频率限制：最小间隔内不能重复发送
-    if email in _code_store:
-        _, expire_at = _code_store[email]
-        remaining = expire_at - time.time()
-        min_interval = settings.SEND_CODE_MIN_INTERVAL_SECONDS
-        if remaining > settings.CODE_EXPIRE_SECONDS - min_interval:
+async def create_and_send_code(db: AsyncSession, email: str) -> str:
+    """生成验证码 -> 入库 -> 发送（持久化，重启不丢）"""
+    now = datetime.utcnow()
+    min_interval = settings.SEND_CODE_MIN_INTERVAL_SECONDS
+    result = await db.execute(
+        select(EmailCode)
+        .where(EmailCode.email == email)
+        .order_by(EmailCode.id.desc())
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+    if latest:
+        elapsed = (now - (latest.created_at or now)).total_seconds()
+        if elapsed < min_interval:
             raise ValueError(f"请求过于频繁，请{min_interval}秒后重试")
 
+    # 旧验证码统一置为已失效（防止多码并存）
+    await db.execute(
+        update(EmailCode)
+        .where(EmailCode.email == email, EmailCode.used_at.is_(None))
+        .values(used_at=now)
+    )
+
     code = generate_code()
-    _code_store[email] = (code, time.time() + settings.CODE_EXPIRE_SECONDS)
+    row = EmailCode(
+        email=email,
+        code=code,
+        expire_at=now + timedelta(seconds=settings.CODE_EXPIRE_SECONDS),
+        used_at=None,
+    )
+    db.add(row)
+    await db.flush()
     await send_verification_email(email, code)
     return code
 
 
-def verify_code(email: str, code: str) -> bool:
-    """校验验证码"""
-    if email not in _code_store:
-        return False
+async def verify_code(
+    db: AsyncSession, email: str, code: str
+) -> tuple[bool, Literal["ok", "invalid", "expired", "not_found"]]:
+    """校验验证码，并返回失败原因。"""
+    now = datetime.utcnow()
+    result = await db.execute(
+        select(EmailCode)
+        .where(EmailCode.email == email, EmailCode.used_at.is_(None))
+        .order_by(EmailCode.id.desc())
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+    if not latest:
+        return False, "not_found"
 
-    stored_code, expire_at = _code_store[email]
-    if time.time() > expire_at:
-        del _code_store[email]
-        return False
+    if latest.expire_at < now:
+        latest.used_at = now
+        return False, "expired"
 
-    if stored_code != code:
-        return False
+    if latest.code != code:
+        return False, "invalid"
 
-    # 验证成功，删除验证码（一次性）
-    del _code_store[email]
-    return True
+    latest.used_at = now
+    return True, "ok"
