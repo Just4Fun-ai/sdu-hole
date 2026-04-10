@@ -57,6 +57,15 @@ if [ \"\${SKIP_PIP:-0}\" != \"1\" ]; then
   sudo /opt/sdu-hole/venv/bin/pip install -r '${APP_DIR}/sdu-hole/requirements.txt'
 fi
 
+# Sync frontend static files for Nginx
+sudo mkdir -p /var/www/sdu-hole
+if [ -f '${APP_DIR}/sdu-hole.html' ]; then
+  sudo cp '${APP_DIR}/sdu-hole.html' /var/www/sdu-hole/index.html
+fi
+if [ -f '${APP_DIR}/deploy-config.js' ]; then
+  sudo cp '${APP_DIR}/deploy-config.js' /var/www/sdu-hole/deploy-config.js
+fi
+
 sudo systemctl restart sdu-hole
 sudo systemctl restart nginx
 sudo systemctl --no-pager --full status sdu-hole | sed -n '1,20p'
