@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
@@ -6,6 +6,7 @@ from typing import Optional
 class PostCreate(BaseModel):
     content: str
     tag: str
+    image_tokens: Optional[list[str]] = None
 
 
 class PostResponse(BaseModel):
@@ -19,6 +20,7 @@ class PostResponse(BaseModel):
     is_liked: bool = False
     is_mine: bool = False
     is_favorited: bool = False
+    image_urls: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

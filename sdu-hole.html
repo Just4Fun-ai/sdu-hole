@@ -163,6 +163,10 @@
     font-weight:500; line-height:1.4; white-space:nowrap;
   }
   .post-content { font-size:15px; line-height:1.8; margin-bottom:14px; word-break:break-word; }
+  .post-image-strip { display:flex; gap:8px; margin-bottom:10px; overflow:hidden; }
+  .post-image-thumb { width:92px; height:92px; border-radius:8px; object-fit:cover; border:1px solid var(--border); background:#fff; }
+  .detail-images { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:10px 0 6px; }
+  .detail-images img { width:100%; height:130px; object-fit:cover; border-radius:8px; border:1px solid var(--border); cursor:pointer; background:#fff; }
   .post-actions { display:flex; align-items:center; gap:18px; }
   .action-btn {
     display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text3);
@@ -218,6 +222,15 @@
     background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent);
   }
   .review-tip { font-size:12px; color:var(--text2); margin:8px 0 10px; line-height:1.5; }
+  .image-pick-row { margin:10px 0 8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .image-pick-input { display:none; }
+  .img-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-top:8px; }
+  .img-item { position:relative; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
+  .img-item img { width:100%; height:96px; object-fit:cover; display:block; }
+  .img-del {
+    position:absolute; top:4px; right:4px; border:none; border-radius:999px; width:24px; height:24px;
+    background:rgba(0,0,0,.55); color:#fff; cursor:pointer; font-size:13px;
+  }
   .form-textarea {
     width:100%; min-height:140px; padding:16px; border-radius:var(--r);
     border:1px solid var(--border); background:var(--bg); color:var(--text);
@@ -404,6 +417,7 @@ const TAG_COLORS = {
 };
 const ANON_ANIMALS = ["松鼠","白鹭","银杏","海棠","泉水","石榴","明湖","樱花"];
 const EMOJIS = ["🙂", "😊", "🤔", "👍", "🙏", "🎉", "🍜", "☕", "🌟", "📚", "🏫", "🌸"];
+const MAX_IMAGES_PER_POST = 3;
 
 function tagChipHTML(tag) {
   const c = TAG_COLORS[tag] || {bg:"#f3f4f6",text:"#374151",border:"#d1d5db"};
@@ -569,6 +583,62 @@ async function apiFetch(path, opts={}) {
     throw new Error(err.detail || "请求失败 (" + res.status + ")");
   }
   return res.json();
+}
+
+async function apiUploadImage(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const headers = {};
+  if (state.token) headers["Authorization"] = "Bearer " + state.token;
+  const res = await fetch(API_BASE + "/api/posts/upload-image", {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "图片上传失败");
+  }
+  return res.json();
+}
+
+async function compressImageClient(file) {
+  const img = await new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("图片读取失败"));
+      i.src = rd.result;
+    };
+    rd.onerror = () => reject(new Error("图片读取失败"));
+    rd.readAsDataURL(file);
+  });
+  const maxEdge = 1600;
+  let { width, height } = img;
+  if (Math.max(width, height) > maxEdge) {
+    const r = maxEdge / Math.max(width, height);
+    width = Math.max(1, Math.round(width * r));
+    height = Math.max(1, Math.round(height * r));
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.82));
+  if (!blob) throw new Error("图片压缩失败");
+  return new File([blob], `${Date.now()}.webp`, { type: "image/webp" });
+}
+
+function renderPostImagesPreview(post, inDetail = false) {
+  const urls = Array.isArray(post.image_urls) ? post.image_urls : [];
+  if (!urls.length) return "";
+  if (!inDetail) {
+    const show = urls.slice(0, 3);
+    return `<div class="post-image-strip">${show.map(u => `<img class="post-image-thumb" src="${escapeAttr(u)}" loading="lazy">`).join("")}</div>`;
+  }
+  return `<div class="detail-images">${urls.map(u => `<img src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" loading="lazy">`).join("")}</div>`;
 }
 
 function formatAuthErrorMessage(raw) {
@@ -1504,13 +1574,14 @@ function showAnnouncementModal() {
 }
 
 // ---- NEW POST MODAL ----
-let newPostTag = "", newPostContent = "", newPostMeta = { course: "", semester: "", rating: "" };
+let newPostTag = "", newPostContent = "", newPostMeta = { course: "", semester: "", rating: "" }, newPostImages = [];
 
 function showNewPostModal() {
   const draft = loadJSON(getDraftKeyForPost(), null);
   newPostTag = draft?.tag || "";
   newPostContent = draft?.content || "";
   newPostMeta = draft?.meta || { course: "", semester: "", rating: "" };
+  newPostImages = [];
   const root = document.getElementById("modal-root");
   root.innerHTML = `
     <div class="modal-overlay" id="modal-overlay">
@@ -1523,6 +1594,12 @@ function showNewPostModal() {
         <input class="form-input" id="custom-tag" placeholder="或输入自定义标签（最多20字）" maxlength="20" value="${escapeAttr(newPostTag)}">
         <div id="review-fields"></div>
         <textarea class="form-textarea" id="new-content" placeholder="说点什么吧……你的发言完全匿名 🌳" maxlength="2000">${escapeHTML(newPostContent).replace(/<br>/g, "\n")}</textarea>
+        <div class="image-pick-row">
+          <label class="btn-outline" for="post-image-input">选择图片（最多3张）</label>
+          <input id="post-image-input" class="image-pick-input" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+          <span class="form-hint">自动压缩后上传，仅支持 jpg/png/webp</span>
+        </div>
+        <div id="post-image-grid" class="img-grid"></div>
         <div class="emoji-bar">
           ${EMOJIS.map(e => `<button class="emoji-btn" data-post-emoji="${e}">${e}</button>`).join("")}
         </div>
@@ -1573,8 +1650,55 @@ function showNewPostModal() {
     btn.addEventListener("click", () => appendEmojiToInput(ta, btn.dataset.postEmoji));
   });
   ta.focus();
+  bindPostImagesPicker();
 
   document.getElementById("btn-submit").addEventListener("click", submitNewPost);
+}
+
+function renderNewPostImages() {
+  const grid = document.getElementById("post-image-grid");
+  if (!grid) return;
+  grid.innerHTML = newPostImages.map((it, idx) => `
+    <div class="img-item">
+      <img src="${escapeAttr(it.preview)}">
+      <button class="img-del" data-del-img="${idx}">✕</button>
+    </div>
+  `).join("");
+  grid.querySelectorAll("[data-del-img]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = parseInt(btn.dataset.delImg);
+      const item = newPostImages[i];
+      if (item?.preview?.startsWith("blob:")) URL.revokeObjectURL(item.preview);
+      newPostImages.splice(i, 1);
+      renderNewPostImages();
+    });
+  });
+}
+
+function bindPostImagesPicker() {
+  const input = document.getElementById("post-image-input");
+  if (!input) return;
+  input.addEventListener("change", async () => {
+    const files = Array.from(input.files || []);
+    for (const f of files) {
+      if (newPostImages.length >= MAX_IMAGES_PER_POST) {
+        showToast(`最多上传 ${MAX_IMAGES_PER_POST} 张`);
+        break;
+      }
+      if (!/^image\/(jpeg|png|webp)$/.test(f.type)) {
+        showToast("仅支持 jpg/png/webp");
+        continue;
+      }
+      if (f.size > 8 * 1024 * 1024) {
+        showToast("单张图片不能超过 8MB");
+        continue;
+      }
+      const preview = URL.createObjectURL(f);
+      newPostImages.push({ raw: f, preview, token: "", url: "" });
+    }
+    input.value = "";
+    renderNewPostImages();
+  });
 }
 
 function renderReviewFields() {
@@ -1669,8 +1793,22 @@ async function submitNewPost() {
   }
 
   try {
-    const post = await apiFetch("/api/posts/", { method:"POST", body:{ content:payloadContent, tag:newPostTag.trim() } });
+    for (const img of newPostImages) {
+      if (!img.token) {
+        const compressed = await compressImageClient(img.raw);
+        const uploaded = await apiUploadImage(compressed);
+        img.token = uploaded.token;
+        img.url = uploaded.url;
+      }
+    }
+    const imageTokens = newPostImages.map(x => x.token).filter(Boolean).slice(0, MAX_IMAGES_PER_POST);
+    const post = await apiFetch("/api/posts/", {
+      method:"POST",
+      body:{ content:payloadContent, tag:newPostTag.trim(), image_tokens: imageTokens }
+    });
     localStorage.removeItem(getDraftKeyForPost());
+    newPostImages.forEach(it => { if (it.preview?.startsWith("blob:")) URL.revokeObjectURL(it.preview); });
+    newPostImages = [];
     state.activeTag = "全部";
     state.feedDirty = true;
     document.getElementById("modal-root").innerHTML = "";
@@ -1715,6 +1853,7 @@ function renderPostList() {
         ${tagChipHTML(p.tag)}
       </div>
       ${reviewMetaHTML(p)}
+      ${renderPostImagesPreview(p, false)}
       <div class="post-content">${postContentPreview(p)}</div>
       <div class="post-actions">
         <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐":"☆"} 收藏</button>
@@ -1732,11 +1871,12 @@ function renderPostList() {
 
 function detailContentHTML(post) {
   if (!isReviewTag(post.tag)) {
-    return `<div class="detail-content">${escapeHTML(post.content)}</div>`;
+    return `${renderPostImagesPreview(post, true)}<div class="detail-content">${escapeHTML(post.content)}</div>`;
   }
   const meta = parseReviewMeta(post.content);
   return `
     ${reviewMetaHTML(post)}
+    ${renderPostImagesPreview(post, true)}
     <div class="detail-content">${escapeHTML(meta.body || post.content)}</div>
   `;
 }
@@ -1838,6 +1978,9 @@ function bindDetail() {
       alert(ok ? "帖子链接已复制" : "复制失败，请手动复制链接");
     });
   }
+  document.querySelectorAll("[data-open-img]").forEach(img => {
+    img.addEventListener("click", () => window.open(img.dataset.openImg, "_blank"));
+  });
   const cancelReplyBtn = document.getElementById("btn-cancel-reply");
   if (cancelReplyBtn) {
     cancelReplyBtn.addEventListener("click", () => {

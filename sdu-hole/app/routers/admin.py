@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
 
 from app.database import get_db
 from app.models.user import User
@@ -8,6 +9,7 @@ from app.models.post import Post
 from app.models.comment import Comment
 from app.models.report import Report
 from app.models.moderation_log import ModerationLog
+from app.models.uploaded_image import UploadedImage
 from app.utils.security import get_current_user, ensure_admin
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
@@ -83,6 +85,14 @@ async def admin_delete_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
     post.is_deleted = True
+    img_result = await db.execute(select(UploadedImage).where(UploadedImage.post_id == post_id))
+    for img in img_result.scalars().all():
+        try:
+            if img.file_path and os.path.exists(img.file_path):
+                os.remove(img.file_path)
+        except Exception:
+            pass
+        await db.delete(img)
     return {"message": "帖子已删除"}
 
 

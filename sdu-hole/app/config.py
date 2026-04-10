@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # 敏感词文件（每行一个词，支持 # 注释）
     SENSITIVE_WORDS_FILE: str = "app/data/sensitive_words.txt"
 
+    # 图片上传
+    IMAGE_MAX_COUNT_PER_POST: int = 3
+    IMAGE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024  # 原图最大 8MB
+    IMAGE_MAX_EDGE: int = 1600  # 压缩后最长边
+    IMAGE_WEBP_QUALITY: int = 82
+    IMAGE_UPLOAD_DIR: str = "app/data/uploads"
+
     class Config:
         env_file = ".env"
 
