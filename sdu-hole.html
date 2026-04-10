@@ -75,6 +75,8 @@
   .btn-primary:hover { background:var(--accent-hover); }
   .btn-primary:disabled { background:var(--border); color:var(--text3); cursor:not-allowed; box-shadow:none; }
   .login-footer { text-align:center; font-size:11px; color:var(--text3); margin-top:24px; line-height:1.8; }
+  .login-footer a { color:var(--text2); text-decoration:none; border-bottom:1px dashed rgba(0,0,0,.2); }
+  .login-footer a:hover { color:var(--accent); border-bottom-color:var(--accent); }
 
   .code-input { text-align:center; letter-spacing:12px; font-size:22px; font-weight:700; }
   .resend-btn { background:none; border:none; font-size:13px; cursor:pointer; margin-top:14px; }
@@ -220,6 +222,10 @@
     background:var(--surface); border-radius:var(--rl); padding:22px;
     border:1px solid var(--border); margin-bottom:20px; animation:fadeUp .3s ease-out;
   }
+  .detail-meta-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+  .detail-meta-left { font-size:12px; color:var(--text3); }
+  .detail-meta-actions { display:flex; align-items:center; gap:8px; }
+  .section-header-row { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
   .detail-content { font-size:16px; line-height:1.9; }
   .section-title { font-size:14px; font-weight:600; color:var(--text2); padding:8px 0 12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
   .comment-item { padding:14px 0; border-bottom:1px solid var(--border-light); animation:fadeIn .3s ease-out; }
@@ -285,6 +291,9 @@ let state = {
   order: "new",
   feedMode: "all", // all | mine | favorites
   keyword: "",
+  detailOnlyAuthor: false,
+  pendingPostId: null,
+  deepLinkInitialized: false,
   authChecked: false,
   authChecking: false,
   loading: false,
@@ -379,6 +388,47 @@ function getDisplayTags() {
   return Array.from(set);
 }
 
+function getInitialPostId() {
+  const raw = new URLSearchParams(location.search).get("post");
+  const id = parseInt(raw || "", 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function syncPostQuery(postId) {
+  try {
+    const url = new URL(location.href);
+    if (postId) url.searchParams.set("post", String(postId));
+    else url.searchParams.delete("post");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch (_) {}
+}
+
+function buildPostShareUrl(postId) {
+  const url = new URL(location.href);
+  url.searchParams.set("post", String(postId));
+  return url.toString();
+}
+
+async function copyText(text) {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) {}
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-1000px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(ta);
+  return ok;
+}
+
 // ============================================================
 // API
 // ============================================================
@@ -424,6 +474,10 @@ function formatAuthErrorMessage(raw) {
 // ============================================================
 function render() {
   const app = document.getElementById("app");
+  if (!state.deepLinkInitialized) {
+    state.pendingPostId = getInitialPostId();
+    state.deepLinkInitialized = true;
+  }
   if (state.token && !state.authChecked) {
     app.innerHTML = `<div class="login-page"><div class="login-card"><div class="empty-state">正在校验登录状态...</div></div></div>`;
     if (!state.authChecking) bootstrapAuth();
@@ -490,7 +544,7 @@ function renderLogin() {
           </div>
           <div id="login-error"></div>
           <button class="btn-primary" id="btn-send" ${loginStudentId.length < 6 ? "disabled" : ""}>发送验证码</button>
-          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>登录即同意《用户协议》和《隐私政策》</div>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>登录即同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></div>
         </div>
       </div>`;
   } else {
@@ -515,7 +569,7 @@ function renderLogin() {
               ${loginCountdown > 0 ? loginCountdown + "s 后重新发送" : "重新发送验证码"}
             </button>
           </div>
-          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
+          <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名<br>继续即同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></div>
         </div>
       </div>`;
   }
@@ -744,6 +798,22 @@ async function loadPosts() {
     if (state.feedMode === "mine") params.set("mine", "true");
     if (state.feedMode === "favorites") params.set("favorited", "true");
     state.posts = await apiFetch("/api/posts/?" + params);
+    if (state.pendingPostId) {
+      const pid = state.pendingPostId;
+      state.pendingPostId = null;
+      let target = state.posts.find(p => p.id === pid) || null;
+      if (!target) {
+        try { target = await apiFetch(`/api/posts/${pid}`); } catch (_) {}
+      }
+      if (target) {
+        state.selectedPost = target;
+        state.detailOnlyAuthor = false;
+        state.page = "detail";
+        syncPostQuery(target.id);
+        render();
+        return;
+      }
+    }
     renderPostList();
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
@@ -801,7 +871,9 @@ function bindPostListInteractions(list) {
       const id = parseInt(el.dataset.id);
       state.selectedPost = state.posts.find(p => p.id === id);
       replyTargetCommentId = null;
+      state.detailOnlyAuthor = false;
       state.page = "detail";
+      syncPostQuery(id);
       render();
     });
   });
@@ -1086,7 +1158,7 @@ function renderPostList() {
       <div class="post-header">
         <div class="anon-info">
           ${avatarHTML(p.id, p.anon_name)}
-          <div><div class="anon-name">${p.anon_name}</div><div class="anon-time">${timeAgo(p.created_at)}</div></div>
+          <div><div class="anon-name">${p.anon_name}</div><div class="anon-time">#${p.id} · ${timeAgo(p.created_at)}</div></div>
         </div>
         ${tagChipHTML(p.tag)}
       </div>
@@ -1129,6 +1201,13 @@ function renderDetail() {
         <span style="font-weight:600;font-size:15px">帖子详情</span>
       </div>
       <div class="detail-card">
+        <div class="detail-meta-row">
+          <div class="detail-meta-left">洞号 #${p.id}</div>
+          <div class="detail-meta-actions">
+            <button class="action-btn" id="detail-copy-id-btn">📋 复制洞号</button>
+            <button class="action-btn" id="detail-share-btn">🔗 复制链接</button>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="anon-info">
             ${avatarHTML(p.id, p.anon_name, 32)}
@@ -1150,7 +1229,10 @@ function renderDetail() {
           ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" id="detail-ban-author-btn">⛔ 禁言作者</button>` : ""}
         </div>
       </div>
-      <div class="section-title">💬 全部回复 (<span id="comment-count">…</span>)</div>
+      <div class="section-header-row">
+        <div class="section-title" style="border-bottom:none;margin-bottom:0">💬 全部回复 (<span id="comment-count">…</span>)</div>
+        <button class="btn-outline" id="btn-only-author">${state.detailOnlyAuthor ? "查看全部回复" : "只看楼主"}</button>
+      </div>
       <div id="comments-list"><div class="empty-state">加载中...</div></div>
       <div style="height:80px"></div>
     </div>
@@ -1169,9 +1251,34 @@ function renderDetail() {
 }
 
 function bindDetail() {
-  document.getElementById("btn-back").addEventListener("click", () => { state.page = "feed"; state.selectedPost = null; render(); });
+  document.getElementById("btn-back").addEventListener("click", () => {
+    state.page = "feed";
+    state.selectedPost = null;
+    state.detailOnlyAuthor = false;
+    syncPostQuery(null);
+    render();
+  });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
   document.getElementById("comment-input").addEventListener("keydown", e => { if(e.key==="Enter") submitComment(); });
+  document.getElementById("btn-only-author").addEventListener("click", () => {
+    state.detailOnlyAuthor = !state.detailOnlyAuthor;
+    loadComments();
+    document.getElementById("btn-only-author").textContent = state.detailOnlyAuthor ? "查看全部回复" : "只看楼主";
+  });
+  const copyIdBtn = document.getElementById("detail-copy-id-btn");
+  if (copyIdBtn) {
+    copyIdBtn.addEventListener("click", async () => {
+      const ok = await copyText(String(state.selectedPost.id));
+      alert(ok ? "洞号已复制" : "复制失败，请手动复制");
+    });
+  }
+  const shareBtn = document.getElementById("detail-share-btn");
+  if (shareBtn) {
+    shareBtn.addEventListener("click", async () => {
+      const ok = await copyText(buildPostShareUrl(state.selectedPost.id));
+      alert(ok ? "帖子链接已复制" : "复制失败，请手动复制链接");
+    });
+  }
   const cancelReplyBtn = document.getElementById("btn-cancel-reply");
   if (cancelReplyBtn) {
     cancelReplyBtn.addEventListener("click", () => {
@@ -1231,6 +1338,8 @@ function bindDetail() {
         state.posts = state.posts.filter(p => p.id !== state.selectedPost.id);
         state.selectedPost = null;
         state.page = "feed";
+        state.detailOnlyAuthor = false;
+        syncPostQuery(null);
         render();
       } catch (e) { alert(e.message); }
     });
@@ -1245,6 +1354,8 @@ function bindDetail() {
         state.posts = state.posts.filter(p => p.id !== state.selectedPost.id);
         state.selectedPost = null;
         state.page = "feed";
+        state.detailOnlyAuthor = false;
+        syncPostQuery(null);
         render();
       } catch (e) { alert(e.message); }
     });
@@ -1267,15 +1378,19 @@ async function loadComments() {
   const countEl = document.getElementById("comment-count");
   try {
     state.comments = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`);
-    countEl.textContent = state.comments.length;
-    if (state.comments.length === 0) {
-      list.innerHTML = `<div class="empty-state">还没有回复，来说两句吧 ✍️</div>`;
+    const allComments = state.comments;
+    const showComments = state.detailOnlyAuthor ? allComments.filter(c => c.is_author) : allComments;
+    countEl.textContent = state.detailOnlyAuthor ? `${showComments.length}/${allComments.length}` : String(showComments.length);
+    if (showComments.length === 0) {
+      list.innerHTML = `<div class="empty-state">${state.detailOnlyAuthor ? "楼主暂未回复，已切到“只看楼主”" : "还没有回复，来说两句吧 ✍️"}</div>`;
     } else {
-      list.innerHTML = state.comments.map((c, i) => `
+      list.innerHTML = showComments.map((c, i) => `
         <div class="comment-item" style="animation-delay:${i*50}ms;${c.parent_id ? "padding-left:16px;border-left:2px solid var(--border-light);" : ""}">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             ${avatarHTML(c.id * 3, c.anon_name, 24)}
             <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+            <span style="font-size:12px;color:var(--text3)">#${i + 1}</span>
+            ${c.is_author ? `<span style="font-size:12px;color:var(--accent)">楼主</span>` : ""}
             ${c.parent_id ? `<span style="font-size:12px;color:var(--text3)">回复 #${c.parent_id}</span>` : ""}
             <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
           </div>
@@ -1355,36 +1470,15 @@ async function submitComment() {
   const btn = document.getElementById("btn-send-comment");
   btn.disabled = true; btn.textContent = "...";
   try {
-    const c = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
+    await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
       method:"POST",
       body:{content, parent_id: replyTargetCommentId}
     });
-    state.comments.push(c);
     input.value = "";
     replyTargetCommentId = null;
     const hint = document.getElementById("reply-hint");
     if (hint) hint.style.display = "none";
-    document.getElementById("comment-count").textContent = state.comments.length;
-    // Append
-    const list = document.getElementById("comments-list");
-    if (state.comments.length === 1) list.innerHTML = "";
-    list.innerHTML += `
-      <div class="comment-item" style="animation:fadeUp .3s ease-out;${c.parent_id ? "padding-left:16px;border-left:2px solid var(--border-light);" : ""}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          ${avatarHTML(c.id * 3, c.anon_name, 24)}
-          <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
-          ${c.parent_id ? `<span style="font-size:12px;color:var(--text3)">回复 #${c.parent_id}</span>` : ""}
-          <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
-        </div>
-        <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
-        <div class="post-actions" style="padding-left:32px;margin-top:8px">
-          <button class="action-btn" data-like-comment="${c.id}">🤍 <span>0</span></button>
-          <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
-          <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
-        </div>
-      </div>`;
-    bindCommentActions();
-    list.scrollTop = list.scrollHeight;
+    await loadComments();
   } catch(e) {
     alert(e.message);
   }

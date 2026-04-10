@@ -38,6 +38,7 @@ class CommentResponse(BaseModel):
     like_count: int
     created_at: datetime
     is_liked: bool = False
+    is_author: bool = False
 
     class Config:
         from_attributes = True

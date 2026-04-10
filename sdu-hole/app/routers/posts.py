@@ -279,6 +279,11 @@ async def list_comments(
     user: User = Depends(get_current_user),
 ):
     ensure_nickname_bound(user)
+    post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(404, "帖子不存在")
+
     result = await db.execute(
         select(Comment)
         .where(Comment.post_id == post_id, Comment.is_deleted == False)
@@ -304,6 +309,7 @@ async def list_comments(
             anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
             content=c.content, like_count=c.like_count,
             created_at=c.created_at, is_liked=c.id in liked_ids,
+            is_author=(c.user_id == post.user_id),
         )
         for c in comments
     ]
@@ -366,7 +372,7 @@ async def create_comment(
         id=comment.id, post_id=comment.post_id, parent_id=comment.parent_id,
         anon_name=normalize_display_name(comment.anon_name, f"同学{comment.user_id}"),
         content=comment.content, like_count=0, created_at=comment.created_at,
-        is_liked=False,
+        is_liked=False, is_author=(comment.user_id == post.user_id),
     )
 
 
