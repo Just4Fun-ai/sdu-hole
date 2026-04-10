@@ -404,19 +404,21 @@
 
   .hidden { display:none !important; }
   .legal-fab {
-    position:fixed; right:14px; bottom:14px; z-index:120;
+    position:fixed; left:14px; bottom:14px; z-index:120;
     background:rgba(255,255,255,.94); backdrop-filter:blur(6px);
     border:1px solid var(--border); border-radius:12px;
     box-shadow:0 6px 20px rgba(0,0,0,.08);
     padding:8px 10px; display:flex; align-items:center; gap:8px;
-    font-size:12px; color:var(--text2);
+    font-size:12px; color:var(--text2); white-space:nowrap;
+    max-width:calc(100vw - 110px); overflow-x:auto;
   }
   .legal-fab a {
     color:var(--accent); text-decoration:none; font-weight:600;
+    white-space:nowrap;
   }
   .legal-fab a:hover { text-decoration:underline; }
   @media (max-width: 760px) {
-    .legal-fab { right:10px; bottom:10px; font-size:11px; padding:7px 9px; }
+    .legal-fab { left:10px; bottom:12px; font-size:11px; padding:7px 9px; max-width:calc(100vw - 96px); }
   }
 </style>
 </head>
@@ -1257,7 +1259,6 @@ function renderFeed() {
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn-outline" id="btn-notify">消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
-            <button class="btn-outline" id="btn-appeal">申诉中心</button>
             <button class="btn-outline" id="btn-block">屏蔽设置</button>
             ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
             <button class="btn-outline" id="btn-logout">退出登录</button>
@@ -1319,8 +1320,6 @@ function bindFeed() {
   if (refreshBtn) refreshBtn.addEventListener("click", () => resetAndLoadPosts());
   const notifyBtn = document.getElementById("btn-notify");
   if (notifyBtn) notifyBtn.addEventListener("click", showNotifications);
-  const appealBtn = document.getElementById("btn-appeal");
-  if (appealBtn) appealBtn.addEventListener("click", showAppealCenter);
   const blockBtn = document.getElementById("btn-block");
   if (blockBtn) blockBtn.addEventListener("click", showBlockSettings);
   const announceBtn = document.getElementById("btn-announce");
@@ -1734,6 +1733,9 @@ async function showNotifications() {
     <div class="modal-overlay" id="notify-overlay">
       <div class="modal-content" id="notify-body">
         <div class="modal-title"><span>🔔 消息中心</span><button class="modal-close" id="notify-close">✕</button></div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn-outline" id="btn-open-appeal">申诉中心</button>
+        </div>
         <div id="notify-list">${state.notifications.length ? "" : `<div class="empty-state">暂无新消息</div>`}</div>
       </div>
     </div>`;
@@ -1741,6 +1743,13 @@ async function showNotifications() {
   document.getElementById("notify-close").addEventListener("click", close);
   document.getElementById("notify-overlay").addEventListener("click", (e) => { if (e.target.id === "notify-overlay") close(); });
   document.getElementById("notify-body").addEventListener("click", (e) => e.stopPropagation());
+  const appealBtn = document.getElementById("btn-open-appeal");
+  if (appealBtn) {
+    appealBtn.addEventListener("click", () => {
+      close();
+      showAppealCenter();
+    });
+  }
   const list = document.getElementById("notify-list");
   if (state.notifications.length) {
     list.innerHTML = state.notifications.map(n => `
