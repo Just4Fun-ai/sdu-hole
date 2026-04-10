@@ -91,6 +91,8 @@ fi
 if [ -f '${APP_DIR}/deploy-config.js' ]; then
   sudo cp '${APP_DIR}/deploy-config.js' /var/www/sdu-hole/deploy-config.js
 fi
+# Force production-safe API base to same-origin to avoid loopback outages
+echo 'window.__SDU_API_BASE__ = "";' | sudo tee /var/www/sdu-hole/deploy-config.js >/dev/null
 if [ -f '${APP_DIR}/user-agreement.html' ]; then
   sudo cp '${APP_DIR}/user-agreement.html' /var/www/sdu-hole/user-agreement.html
 fi

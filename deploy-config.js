@@ -1,1 +1,2 @@
-window.__SDU_API_BASE__="http://127.0.0.1:8000";
+// Production-safe default: use same-origin API (/api via Nginx reverse proxy)
+window.__SDU_API_BASE__ = "";

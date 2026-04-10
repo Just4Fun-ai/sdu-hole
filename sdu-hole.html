@@ -330,9 +330,13 @@
   // 3) localStorage.sdu_api_base（仅调试用途）
   // 4) 本地默认地址
   const SAME_ORIGIN_BASE = location.protocol.startsWith("http") ? location.origin : "";
+  const RAW_INJECTED_BASE = String(window.__SDU_API_BASE__ || "").trim();
+  const injectedIsLoopback =
+    /127\.0\.0\.1|localhost/i.test(RAW_INJECTED_BASE) && !/127\.0\.0\.1|localhost/i.test(location.hostname);
+  const SAFE_INJECTED_BASE = injectedIsLoopback ? "" : RAW_INJECTED_BASE;
   const DEBUG_API_BASE = (localStorage.getItem("sdu_api_base") || "").trim();
   const API_BASE =
-    window.__SDU_API_BASE__ ||
+    SAFE_INJECTED_BASE ||
     SAME_ORIGIN_BASE ||
     DEBUG_API_BASE ||
     "http://localhost:8000";
