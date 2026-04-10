@@ -43,7 +43,8 @@ nano /opt/sdu-hole/app/sdu-hole/.env
 
 ```env
 SECRET_KEY=换成随机长字符串
-DATABASE_URL=sqlite+aiosqlite:///./sdu_hole.db
+DATABASE_URL=sqlite+aiosqlite:////opt/sdu-hole/data/sdu_hole.db
+IMAGE_UPLOAD_DIR=/opt/sdu-hole/data/uploads
 CORS_ORIGINS=*
 ALLOWED_EMAIL_SUFFIX=@mail.sdu.edu.cn
 
@@ -98,6 +99,28 @@ http://你的服务器IP/docs
 ```
 
 ## 8. 代码更新（以后每次发布）
+
+推荐使用本仓库的一键安全发布脚本（不会覆盖线上数据库）：
+
+```bash
+# 本地终端执行
+cd 你的项目目录
+bash deploy/cn-ip/push_to_server.sh 你的服务器IP
+```
+
+如果你手动在服务器 `git pull`，请务必确保：
+- `.env` 没被覆盖
+- `DATABASE_URL` 仍是 `/opt/sdu-hole/data/sdu_hole.db`
+
+可用下面命令快速核对：
+
+```bash
+# 服务器终端执行
+cd /opt/sdu-hole/app/sdu-hole
+grep '^DATABASE_URL=' .env
+```
+
+仅在需要手工更新时再用：
 
 ```bash
 cd /opt/sdu-hole/app
