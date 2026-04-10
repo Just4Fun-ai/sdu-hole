@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models.user import User
@@ -10,9 +11,16 @@ from app.models.comment import Comment
 from app.models.report import Report
 from app.models.moderation_log import ModerationLog
 from app.models.uploaded_image import UploadedImage
+from app.models.appeal import Appeal
 from app.utils.security import get_current_user, ensure_admin
+from app.schemas.auth import AppealResolveRequest
+from app.services.moderation import log_moderation_hit
 
 router = APIRouter(prefix="/api/admin", tags=["管理"])
+
+
+class AdminActionPayload(BaseModel):
+    reason: str = ""
 
 
 @router.get("/reports", summary="查看举报列表（管理员）")
@@ -76,6 +84,7 @@ async def list_moderation_hits(
 @router.delete("/posts/{post_id}", summary="管理员删除帖子")
 async def admin_delete_post(
     post_id: int,
+    payload: AdminActionPayload | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -84,6 +93,7 @@ async def admin_delete_post(
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
+    reason = (payload.reason if payload else "").strip()
     post.is_deleted = True
     img_result = await db.execute(select(UploadedImage).where(UploadedImage.post_id == post_id))
     for img in img_result.scalars().all():
@@ -93,12 +103,20 @@ async def admin_delete_post(
         except Exception:
             pass
         await db.delete(img)
+    await log_moderation_hit(
+        db,
+        user_id=post.user_id,
+        scene="admin_delete_post",
+        content=f"post:{post.id}",
+        reason=reason or "管理员删除帖子",
+    )
     return {"message": "帖子已删除"}
 
 
 @router.post("/posts/{post_id}/ban-author", summary="禁言帖子作者（管理员）")
 async def ban_post_author(
     post_id: int,
+    payload: AdminActionPayload | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -115,13 +133,22 @@ async def ban_post_author(
     if target.is_admin:
         raise HTTPException(status_code=400, detail="管理员账号不可禁言")
 
+    reason = (payload.reason if payload else "").strip()
     target.is_banned = True
+    await log_moderation_hit(
+        db,
+        user_id=target.id,
+        scene="admin_ban_user",
+        content=f"user:{target.id} by_post:{post.id}",
+        reason=reason or "管理员禁言账号",
+    )
     return {"message": "已禁言该帖子作者", "user_id": target.id}
 
 
 @router.delete("/comments/{comment_id}", summary="管理员删除评论")
 async def admin_delete_comment(
     comment_id: int,
+    payload: AdminActionPayload | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -130,7 +157,15 @@ async def admin_delete_comment(
     comment = result.scalar_one_or_none()
     if not comment:
         raise HTTPException(status_code=404, detail="评论不存在")
+    reason = (payload.reason if payload else "").strip()
     comment.is_deleted = True
+    await log_moderation_hit(
+        db,
+        user_id=comment.user_id,
+        scene="admin_delete_comment",
+        content=f"comment:{comment.id}",
+        reason=reason or "管理员删除评论",
+    )
     return {"message": "评论已删除"}
 
 
@@ -167,6 +202,7 @@ async def list_users(
 @router.post("/users/{user_id}/ban", summary="禁言用户（管理员）")
 async def ban_user(
     user_id: int,
+    payload: AdminActionPayload | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -177,13 +213,22 @@ async def ban_user(
         raise HTTPException(status_code=404, detail="用户不存在")
     if target.is_admin:
         raise HTTPException(status_code=400, detail="管理员账号不可禁言")
+    reason = (payload.reason if payload else "").strip()
     target.is_banned = True
+    await log_moderation_hit(
+        db,
+        user_id=target.id,
+        scene="admin_ban_user",
+        content=f"user:{target.id}",
+        reason=reason or "管理员禁言账号",
+    )
     return {"message": "已禁言", "user_id": user_id}
 
 
 @router.post("/users/{user_id}/unban", summary="解除禁言（管理员）")
 async def unban_user(
     user_id: int,
+    payload: AdminActionPayload | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -192,5 +237,64 @@ async def unban_user(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
+    reason = (payload.reason if payload else "").strip()
     target.is_banned = False
+    await log_moderation_hit(
+        db,
+        user_id=target.id,
+        scene="admin_unban_user",
+        content=f"user:{target.id}",
+        reason=reason or "管理员解除禁言",
+    )
     return {"message": "已解除禁言", "user_id": user_id}
+
+
+@router.get("/appeals", summary="查看申诉列表（管理员）")
+async def list_appeals(
+    status: str = Query("all", description="all/pending/approved/rejected"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    query = select(Appeal).order_by(desc(Appeal.created_at))
+    if status in ("pending", "approved", "rejected"):
+        query = query.where(Appeal.status == status)
+    query = query.offset((page - 1) * size).limit(size)
+    rows = (await db.execute(query)).scalars().all()
+    return [
+        {
+            "id": a.id,
+            "user_id": a.user_id,
+            "moderation_log_id": a.moderation_log_id,
+            "content": a.content,
+            "status": a.status,
+            "admin_reply": a.admin_reply or "",
+            "resolved_by": a.resolved_by,
+            "created_at": a.created_at,
+            "updated_at": a.updated_at,
+        }
+        for a in rows
+    ]
+
+
+@router.post("/appeals/{appeal_id}/resolve", summary="处理申诉（管理员）")
+async def resolve_appeal(
+    appeal_id: int,
+    req: AppealResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    result = await db.execute(select(Appeal).where(Appeal.id == appeal_id))
+    appeal = result.scalar_one_or_none()
+    if not appeal:
+        raise HTTPException(status_code=404, detail="申诉不存在")
+    status = (req.status or "").strip().lower()
+    if status not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="状态仅支持 approved/rejected")
+    appeal.status = status
+    appeal.admin_reply = (req.admin_reply or "").strip()
+    appeal.resolved_by = user.id
+    return {"message": "申诉已处理", "id": appeal.id, "status": appeal.status}

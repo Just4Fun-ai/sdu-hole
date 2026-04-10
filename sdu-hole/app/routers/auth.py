@@ -2,11 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 import random
 import time
 
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
+from app.models.appeal import Appeal
+from app.models.moderation_log import ModerationLog
 from app.schemas.auth import (
     SendCodeRequest,
     VerifyRequest,
@@ -14,6 +16,7 @@ from app.schemas.auth import (
     RandomNicknameResponse,
     BindNicknameRequest,
     UserProfileResponse,
+    AppealCreateRequest,
 )
 from app.services.email import create_and_send_code, verify_code
 from app.utils.security import hash_student_id, create_access_token, get_current_user
@@ -234,3 +237,108 @@ async def me(user: User = Depends(get_current_user)):
         must_bind_nickname=nickname is None,
         is_admin=bool(user.is_admin),
     )
+
+
+@router.get("/moderation-events", summary="查看我的治理记录")
+async def my_moderation_events(
+    page: int = 1,
+    size: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    size = max(1, min(size, 100))
+    page = max(1, page)
+    result = await db.execute(
+        select(ModerationLog)
+        .where(ModerationLog.user_id == user.id)
+        .where(ModerationLog.scene.like("admin_%"))
+        .order_by(desc(ModerationLog.created_at))
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "scene": r.scene,
+            "reason": r.reason or "",
+            "content_preview": r.content_preview or "",
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/appeals", summary="查看我的申诉")
+async def my_appeals(
+    page: int = 1,
+    size: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    size = max(1, min(size, 100))
+    page = max(1, page)
+    result = await db.execute(
+        select(Appeal)
+        .where(Appeal.user_id == user.id)
+        .order_by(desc(Appeal.created_at))
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "moderation_log_id": a.moderation_log_id,
+            "content": a.content,
+            "status": a.status,
+            "admin_reply": a.admin_reply or "",
+            "created_at": a.created_at,
+            "updated_at": a.updated_at,
+        }
+        for a in rows
+    ]
+
+
+@router.post("/appeals", summary="提交申诉")
+async def create_appeal(
+    req: AppealCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    content = (req.content or "").strip()
+    if len(content) < 5:
+        raise HTTPException(status_code=400, detail="申诉内容至少 5 个字符")
+    if len(content) > 1000:
+        raise HTTPException(status_code=400, detail="申诉内容不能超过 1000 个字符")
+
+    event_result = await db.execute(
+        select(ModerationLog).where(
+            ModerationLog.id == req.moderation_log_id,
+            ModerationLog.user_id == user.id,
+            ModerationLog.scene.like("admin_%"),
+        )
+    )
+    event = event_result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail="治理记录不存在")
+
+    existing_result = await db.execute(
+        select(Appeal).where(
+            Appeal.user_id == user.id,
+            Appeal.moderation_log_id == req.moderation_log_id,
+            Appeal.status == "pending",
+        )
+    )
+    if existing_result.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=400, detail="该记录已有待处理申诉")
+
+    db.add(
+        Appeal(
+            user_id=user.id,
+            moderation_log_id=req.moderation_log_id,
+            content=content,
+            status="pending",
+        )
+    )
+    return {"message": "申诉已提交，等待管理员处理"}

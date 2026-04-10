@@ -31,3 +31,13 @@ class UserProfileResponse(BaseModel):
     nickname: str | None = None
     must_bind_nickname: bool
     is_admin: bool = False
+
+
+class AppealCreateRequest(BaseModel):
+    moderation_log_id: int
+    content: str
+
+
+class AppealResolveRequest(BaseModel):
+    status: str  # approved / rejected
+    admin_reply: str = ""

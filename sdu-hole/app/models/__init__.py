@@ -7,5 +7,6 @@ from app.models.moderation_log import ModerationLog
 from app.models.email_code import EmailCode
 from app.models.favorite import Favorite
 from app.models.uploaded_image import UploadedImage
+from app.models.appeal import Appeal
 
-__all__ = ["User", "Post", "Comment", "Like", "Report", "ModerationLog", "EmailCode", "Favorite", "UploadedImage"]
+__all__ = ["User", "Post", "Comment", "Like", "Report", "ModerationLog", "EmailCode", "Favorite", "UploadedImage", "Appeal"]

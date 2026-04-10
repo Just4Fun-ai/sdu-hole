@@ -74,6 +74,10 @@
     padding:10px 14px; border-radius:8px; background:#fef2f2;
     border:1px solid #fecaca; color:var(--danger); font-size:13px; margin-top:12px;
   }
+  .form-success {
+    padding:10px 14px; border-radius:8px; background:#f0fdf4;
+    border:1px solid #bbf7d0; color:#166534; font-size:13px; margin-top:12px;
+  }
   .btn-primary {
     width:100%; padding:13px 0; border-radius:var(--r); border:none;
     background:var(--accent); color:#fff; font-size:15px; font-weight:600;
@@ -176,6 +180,103 @@
   .post-image-thumb { width:92px; height:92px; border-radius:8px; object-fit:cover; border:1px solid var(--border); background:#fff; }
   .detail-images { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:10px 0 6px; }
   .detail-images img { width:100%; height:130px; object-fit:cover; border-radius:8px; border:1px solid var(--border); cursor:pointer; background:#fff; }
+  .post-content.clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .expand-btn {
+    margin-top:6px;
+    background:transparent;
+    border:none;
+    color:var(--accent);
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    padding:0;
+  }
+  .hole-jump-row {
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+    flex-wrap:wrap;
+  }
+  .hole-jump-input {
+    flex:1;
+    min-width:180px;
+    height:36px;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:0 12px;
+    font-size:14px;
+    background:#fff;
+  }
+  .img-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: rgba(0,0,0,.85);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .img-viewer-stage {
+    width:min(96vw, 1100px);
+    height:min(88vh, 820px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    position:relative;
+  }
+  .img-viewer-img {
+    max-width:100%;
+    max-height:100%;
+    border-radius:12px;
+    transform-origin:center center;
+    transition:transform .15s ease;
+    user-select:none;
+  }
+  .img-viewer-btn {
+    position:absolute;
+    top:16px;
+    background:rgba(255,255,255,.15);
+    color:#fff;
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:10px;
+    padding:6px 10px;
+    cursor:pointer;
+    font-size:13px;
+  }
+  .img-viewer-close { right:16px; }
+  .img-viewer-nav {
+    position:absolute;
+    top:50%;
+    transform:translateY(-50%);
+    background:rgba(255,255,255,.14);
+    color:#fff;
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:999px;
+    width:38px;
+    height:38px;
+    cursor:pointer;
+    font-size:18px;
+  }
+  .img-viewer-prev { left:16px; }
+  .img-viewer-next { right:16px; }
+  .img-viewer-meta {
+    position:absolute;
+    bottom:16px;
+    left:50%;
+    transform:translateX(-50%);
+    color:#fff;
+    font-size:13px;
+    background:rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:999px;
+    padding:5px 12px;
+  }
   .post-actions { display:flex; align-items:center; gap:18px; }
   .action-btn {
     display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text3);
@@ -371,6 +472,7 @@ let state = {
   hasMorePosts: true,
   loadingPosts: false,
   feedDirty: true,
+  expandedPostIds: loadJSON("sdu_expanded_posts", []),
   announcements: [],
   unreadNoticeCount: 0,
   notifications: [],
@@ -382,6 +484,12 @@ let state = {
   authChecked: false,
   authChecking: false,
   loading: false,
+  imageViewer: {
+    open: false,
+    urls: [],
+    index: 0,
+    zoom: 1,
+  },
 };
 
 function loadJSON(key, fallback) {
@@ -495,6 +603,48 @@ function formatHoleNo(id, createdAt = null) {
   const m = d ? String(d.getMonth() + 1).padStart(2, "0") : "00";
   const day = d ? String(d.getDate()).padStart(2, "0") : "00";
   return `sdu-${y}${m}${day}-${Math.floor(n)}`;
+}
+
+function parseHoleIdInput(raw) {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return null;
+  const m = text.match(/(\d+)\s*$/);
+  if (!m) return null;
+  const id = parseInt(m[1], 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function jumpToHole(raw) {
+  const id = parseHoleIdInput(raw);
+  if (!id) throw new Error("请输入有效洞号，例如 sdu-260410-12 或 12");
+  const post = await apiFetch(`/api/posts/${id}`);
+  state.selectedPost = post;
+  state.page = "detail";
+  state.detailOnlyAuthor = false;
+  syncPostQuery(id);
+  render();
+}
+
+function isPostExpanded(postId) {
+  return Array.isArray(state.expandedPostIds) && state.expandedPostIds.includes(postId);
+}
+
+function setPostExpanded(postId, expanded) {
+  const set = new Set(state.expandedPostIds || []);
+  if (expanded) set.add(postId);
+  else set.delete(postId);
+  state.expandedPostIds = Array.from(set).slice(0, 300);
+  saveJSON("sdu_expanded_posts", state.expandedPostIds);
+}
+
+function postContentHTML(post) {
+  const full = postContentPreview(post);
+  const text = String(postContentPreview(post).replace(/<[^>]*>/g, ""));
+  const shouldClamp = text.length > 220 || (post.content || "").includes("\n");
+  const expanded = isPostExpanded(post.id);
+  const content = `<div class="post-content ${shouldClamp && !expanded ? "clamped" : ""}" data-post-content="${post.id}">${full}</div>`;
+  if (!shouldClamp) return content;
+  return `${content}<button class="expand-btn" data-expand-post="${post.id}">${expanded ? "收起" : "展开全文"}</button>`;
 }
 
 function isReviewTag(tag) {
@@ -674,9 +824,9 @@ function renderPostImagesPreview(post, inDetail = false) {
   if (!urls.length) return "";
   if (!inDetail) {
     const show = urls.slice(0, 3);
-    return `<div class="post-image-strip">${show.map(u => `<img class="post-image-thumb" src="${escapeAttr(u)}" loading="lazy">`).join("")}</div>`;
+    return `<div class="post-image-strip">${show.map((u, idx) => `<img class="post-image-thumb" src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy">`).join("")}</div>`;
   }
-  return `<div class="detail-images">${urls.map(u => `<img src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" loading="lazy">`).join("")}</div>`;
+  return `<div class="detail-images">${urls.map((u, idx) => `<img src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy">`).join("")}</div>`;
 }
 
 function formatAuthErrorMessage(raw) {
@@ -1106,6 +1256,7 @@ function renderFeed() {
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn-outline" id="btn-notify">消息${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
+            <button class="btn-outline" id="btn-appeal">申诉中心</button>
             <button class="btn-outline" id="btn-block">屏蔽设置</button>
             ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
             <button class="btn-outline" id="btn-logout">退出登录</button>
@@ -1126,6 +1277,10 @@ function renderFeed() {
         <div class="tool-row">
           <button class="btn-outline" id="btn-refresh">刷新</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
+        </div>
+        <div class="hole-jump-row">
+          <input id="hole-jump-input" class="hole-jump-input" placeholder="洞号直达：输入 sdu-260410-12 或 12">
+          <button class="btn-outline" id="btn-hole-jump">直达</button>
         </div>
       </div>
       ${topNotice ? `
@@ -1163,6 +1318,8 @@ function bindFeed() {
   if (refreshBtn) refreshBtn.addEventListener("click", () => resetAndLoadPosts());
   const notifyBtn = document.getElementById("btn-notify");
   if (notifyBtn) notifyBtn.addEventListener("click", showNotifications);
+  const appealBtn = document.getElementById("btn-appeal");
+  if (appealBtn) appealBtn.addEventListener("click", showAppealCenter);
   const blockBtn = document.getElementById("btn-block");
   if (blockBtn) blockBtn.addEventListener("click", showBlockSettings);
   const announceBtn = document.getElementById("btn-announce");
@@ -1204,6 +1361,21 @@ function bindFeed() {
       state.keyword = searchInput.value;
       clearTimeout(t);
       t = setTimeout(() => renderPostList(), 120);
+    });
+  }
+  const holeInput = document.getElementById("hole-jump-input");
+  const holeBtn = document.getElementById("btn-hole-jump");
+  if (holeBtn && holeInput) {
+    const runJump = async () => {
+      try {
+        await jumpToHole(holeInput.value);
+      } catch (e) {
+        showToast(e.message || "洞号无效或帖子不存在");
+      }
+    };
+    holeBtn.addEventListener("click", runJump);
+    holeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runJump();
     });
   }
   document.getElementById("btn-new").addEventListener("click", showNewPostModal);
@@ -1409,8 +1581,9 @@ function bindPostListInteractions(list) {
       e.stopPropagation();
       const id = parseInt(btn.dataset.adminDeletePost);
       if (!confirm("确认以管理员身份删除这条帖子吗？")) return;
+      const reason = (prompt("请输入删除原因（将通知当事人）", "违反社区规范") || "").trim();
       try {
-        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE" });
+        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE", body: { reason } });
         state.posts = state.posts.filter(p => p.id !== id);
         renderPostList();
       } catch (err) {
@@ -1424,12 +1597,35 @@ function bindPostListInteractions(list) {
       e.stopPropagation();
       const id = parseInt(btn.dataset.banAuthor);
       if (!confirm("确认禁言该帖作者吗？")) return;
+      const reason = (prompt("请输入禁言原因（将通知当事人）", "多次违规发言") || "").trim();
       try {
-        const data = await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST" });
+        const data = await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST", body: { reason } });
         alert(data.message || "已禁言");
       } catch (err) {
         alert(err.message);
       }
+    });
+  });
+
+  list.querySelectorAll("[data-expand-post]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const postId = parseInt(btn.dataset.expandPost, 10);
+      if (!Number.isFinite(postId)) return;
+      setPostExpanded(postId, !isPostExpanded(postId));
+      renderPostList();
+    });
+  });
+
+  list.querySelectorAll("[data-open-img]").forEach(img => {
+    img.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const card = img.closest(".post-card");
+      const postId = card ? parseInt(card.dataset.id, 10) : null;
+      const post = Number.isFinite(postId) ? state.posts.find(p => p.id === postId) : null;
+      const urls = Array.isArray(post?.image_urls) ? post.image_urls : [];
+      const idx = parseInt(img.dataset.imgIndex || "0", 10) || 0;
+      openImageViewer(urls, idx);
     });
   });
 }
@@ -1892,7 +2088,7 @@ function renderPostList() {
       </div>
       ${reviewMetaHTML(p)}
       ${renderPostImagesPreview(p, false)}
-      <div class="post-content">${postContentPreview(p)}</div>
+      ${postContentHTML(p)}
       <div class="post-actions">
         <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐":"☆"} 收藏</button>
         <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
@@ -1935,6 +2131,7 @@ function renderDetail() {
           <div class="detail-meta-left">${formatHoleNo(p.id, p.created_at)}</div>
           <div class="detail-meta-actions">
             <button class="action-btn" id="detail-copy-id-btn">📋 复制洞号</button>
+            <button class="action-btn" id="detail-copy-content-btn">📄 复制全文</button>
             <button class="action-btn" id="detail-share-btn">🔗 复制链接</button>
           </div>
         </div>
@@ -2005,8 +2202,16 @@ function bindDetail() {
   const copyIdBtn = document.getElementById("detail-copy-id-btn");
   if (copyIdBtn) {
     copyIdBtn.addEventListener("click", async () => {
-      const ok = await copyText(String(state.selectedPost.id));
+      const ok = await copyText(formatHoleNo(state.selectedPost.id, state.selectedPost.created_at));
       alert(ok ? "洞号已复制" : "复制失败，请手动复制");
+    });
+  }
+  const copyContentBtn = document.getElementById("detail-copy-content-btn");
+  if (copyContentBtn) {
+    copyContentBtn.addEventListener("click", async () => {
+      const text = `${formatHoleNo(state.selectedPost.id, state.selectedPost.created_at)}\n${state.selectedPost.anon_name}\n${state.selectedPost.content}`;
+      const ok = await copyText(text);
+      showToast(ok ? "全文已复制" : "复制失败");
     });
   }
   const shareBtn = document.getElementById("detail-share-btn");
@@ -2017,7 +2222,11 @@ function bindDetail() {
     });
   }
   document.querySelectorAll("[data-open-img]").forEach(img => {
-    img.addEventListener("click", () => window.open(img.dataset.openImg, "_blank"));
+    img.addEventListener("click", () => {
+      const urls = Array.isArray(state.selectedPost?.image_urls) ? state.selectedPost.image_urls : [];
+      const idx = parseInt(img.dataset.imgIndex || "0", 10) || 0;
+      openImageViewer(urls, idx);
+    });
   });
   const cancelReplyBtn = document.getElementById("btn-cancel-reply");
   if (cancelReplyBtn) {
@@ -2089,8 +2298,9 @@ function bindDetail() {
   if (adminDeleteBtn) {
     adminDeleteBtn.addEventListener("click", async () => {
       if (!confirm("确认以管理员身份删除这条帖子吗？")) return;
+      const reason = (prompt("请输入删除原因（将通知当事人）", "违反社区规范") || "").trim();
       try {
-        await apiFetch(`/api/admin/posts/${state.selectedPost.id}`, { method: "DELETE" });
+        await apiFetch(`/api/admin/posts/${state.selectedPost.id}`, { method: "DELETE", body: { reason } });
         state.posts = state.posts.filter(p => p.id !== state.selectedPost.id);
         state.selectedPost = null;
         state.page = "feed";
@@ -2105,8 +2315,9 @@ function bindDetail() {
   if (banAuthorBtn) {
     banAuthorBtn.addEventListener("click", async () => {
       if (!confirm("确认禁言该帖作者吗？")) return;
+      const reason = (prompt("请输入禁言原因（将通知当事人）", "多次违规发言") || "").trim();
       try {
-        const data = await apiFetch(`/api/admin/posts/${state.selectedPost.id}/ban-author`, { method: "POST" });
+        const data = await apiFetch(`/api/admin/posts/${state.selectedPost.id}/ban-author`, { method: "POST", body: { reason } });
         alert(data.message || "已禁言");
       } catch (e) { alert(e.message); }
     });
@@ -2238,6 +2449,7 @@ async function showAdminPanel() {
         <div class="tab-bar">
           <button class="tab-btn active" data-admin-tab="reports">举报队列</button>
           <button class="tab-btn" data-admin-tab="hits">敏感命中</button>
+          <button class="tab-btn" data-admin-tab="appeals">申诉处理</button>
         </div>
         <div id="admin-content" style="max-height:55vh;overflow:auto;padding-top:8px">加载中...</div>
       </div>
@@ -2269,7 +2481,7 @@ async function showAdminPanel() {
           </div>
         `).join("");
         bindAdminActions();
-      } else {
+      } else if (tab === "hits") {
         const rows = await apiFetch("/api/admin/moderation-hits?page=1&size=50");
         if (!rows.length) { box.innerHTML = `<div class="empty-state">暂无命中记录</div>`; return; }
         box.innerHTML = rows.map(r => `
@@ -2279,6 +2491,20 @@ async function showAdminPanel() {
             <div style="font-size:12px;color:var(--text3)">${escapeHTML(r.reason || "")}</div>
           </div>
         `).join("");
+      } else {
+        const rows = await apiFetch("/api/admin/appeals?status=pending&page=1&size=50");
+        if (!rows.length) { box.innerHTML = `<div class="empty-state">暂无待处理申诉</div>`; return; }
+        box.innerHTML = rows.map(a => `
+          <div class="comment-item">
+            <div style="font-size:13px;color:var(--text2)">申诉#${a.id} · 用户:${a.user_id} · 记录:${a.moderation_log_id} · ${timeAgo(a.created_at)}</div>
+            <div style="font-size:14px;margin:6px 0">${escapeHTML(a.content || "")}</div>
+            <div class="post-actions">
+              <button class="action-btn warn" data-appeal-resolve="${a.id}" data-appeal-status="approved">✅ 通过申诉</button>
+              <button class="action-btn warn" data-appeal-resolve="${a.id}" data-appeal-status="rejected">❌ 驳回申诉</button>
+            </div>
+          </div>
+        `).join("");
+        bindAdminActions();
       }
     } catch (e) {
       box.innerHTML = `<div class="empty-state" style="color:var(--danger)">${escapeHTML(e.message)}</div>`;
@@ -2301,8 +2527,9 @@ function bindAdminActions() {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminDelPost);
       if (!confirm(`确认删除帖子（${formatHoleNo(id)}）?`)) return;
+      const reason = (prompt("请输入删除原因（将通知当事人）", "违反社区规范") || "").trim();
       try {
-        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE" });
+        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE", body: { reason } });
         btn.closest(".comment-item")?.remove();
       } catch (e) { alert(e.message); }
     });
@@ -2311,8 +2538,9 @@ function bindAdminActions() {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminBanPostAuthor);
       if (!confirm(`确认禁言帖子作者（${formatHoleNo(id)}）?`)) return;
+      const reason = (prompt("请输入禁言原因（将通知当事人）", "多次违规发言") || "").trim();
       try {
-        await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST" });
+        await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST", body: { reason } });
         alert("已禁言作者");
       } catch (e) { alert(e.message); }
     });
@@ -2321,12 +2549,208 @@ function bindAdminActions() {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminDelComment);
       if (!confirm(`确认删除评论 #${id} ?`)) return;
+      const reason = (prompt("请输入删除原因（将通知当事人）", "评论违规") || "").trim();
       try {
-        await apiFetch(`/api/admin/comments/${id}`, { method: "DELETE" });
+        await apiFetch(`/api/admin/comments/${id}`, { method: "DELETE", body: { reason } });
         btn.closest(".comment-item")?.remove();
       } catch (e) { alert(e.message); }
     });
   });
+  document.querySelectorAll("[data-appeal-resolve]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.appealResolve, 10);
+      const status = btn.dataset.appealStatus;
+      const reply = (prompt("请输入给用户的处理回复", status === "approved" ? "已复核，申诉通过，后续将优化规则。" : "已复核，维持原处理。") || "").trim();
+      try {
+        await apiFetch(`/api/admin/appeals/${id}/resolve`, {
+          method: "POST",
+          body: { status, admin_reply: reply },
+        });
+        btn.closest(".comment-item")?.remove();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+}
+
+function openImageViewer(urls, startIndex = 0) {
+  const list = (Array.isArray(urls) ? urls : []).filter(Boolean);
+  if (!list.length) return;
+  state.imageViewer = {
+    open: true,
+    urls: list,
+    index: Math.max(0, Math.min(startIndex, list.length - 1)),
+    zoom: 1,
+  };
+  renderImageViewer();
+}
+
+function closeImageViewer() {
+  state.imageViewer = { open: false, urls: [], index: 0, zoom: 1 };
+  const root = document.getElementById("img-viewer-root");
+  if (root) root.remove();
+}
+
+function renderImageViewer() {
+  const v = state.imageViewer;
+  if (!v.open || !v.urls.length) return;
+  let root = document.getElementById("img-viewer-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "img-viewer-root";
+    document.body.appendChild(root);
+  }
+  root.innerHTML = `
+    <div class="img-viewer" id="img-viewer-overlay">
+      <div class="img-viewer-stage" id="img-viewer-stage">
+        <button class="img-viewer-btn img-viewer-close" id="img-viewer-close">关闭</button>
+        ${v.urls.length > 1 ? `<button class="img-viewer-nav img-viewer-prev" id="img-viewer-prev">‹</button>` : ""}
+        <img class="img-viewer-img" id="img-viewer-img" src="${escapeAttr(v.urls[v.index])}" style="transform:scale(${v.zoom})">
+        ${v.urls.length > 1 ? `<button class="img-viewer-nav img-viewer-next" id="img-viewer-next">›</button>` : ""}
+        <div class="img-viewer-meta">${v.index + 1} / ${v.urls.length} · 滚轮缩放</div>
+      </div>
+    </div>`;
+
+  const overlay = document.getElementById("img-viewer-overlay");
+  const stage = document.getElementById("img-viewer-stage");
+  const closeBtn = document.getElementById("img-viewer-close");
+  const prevBtn = document.getElementById("img-viewer-prev");
+  const nextBtn = document.getElementById("img-viewer-next");
+
+  closeBtn?.addEventListener("click", closeImageViewer);
+  overlay?.addEventListener("click", (e) => {
+    if (e.target.id === "img-viewer-overlay") closeImageViewer();
+  });
+  stage?.addEventListener("click", (e) => e.stopPropagation());
+
+  prevBtn?.addEventListener("click", () => {
+    state.imageViewer.index = (state.imageViewer.index - 1 + state.imageViewer.urls.length) % state.imageViewer.urls.length;
+    state.imageViewer.zoom = 1;
+    renderImageViewer();
+  });
+  nextBtn?.addEventListener("click", () => {
+    state.imageViewer.index = (state.imageViewer.index + 1) % state.imageViewer.urls.length;
+    state.imageViewer.zoom = 1;
+    renderImageViewer();
+  });
+
+  stage?.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const step = e.deltaY > 0 ? -0.1 : 0.1;
+    state.imageViewer.zoom = Math.max(0.6, Math.min(3, state.imageViewer.zoom + step));
+    const img = document.getElementById("img-viewer-img");
+    if (img) img.style.transform = `scale(${state.imageViewer.zoom})`;
+  }, { passive: false });
+
+  let touchStartX = 0;
+  stage?.addEventListener("touchstart", (e) => {
+    if (!e.touches?.length) return;
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  stage?.addEventListener("touchend", (e) => {
+    if (!e.changedTouches?.length) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) < 45 || state.imageViewer.urls.length <= 1) return;
+    if (dx > 0) {
+      state.imageViewer.index = (state.imageViewer.index - 1 + state.imageViewer.urls.length) % state.imageViewer.urls.length;
+    } else {
+      state.imageViewer.index = (state.imageViewer.index + 1) % state.imageViewer.urls.length;
+    }
+    state.imageViewer.zoom = 1;
+    renderImageViewer();
+  }, { passive: true });
+}
+
+async function showAppealCenter() {
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="appeal-overlay">
+      <div class="modal-content" id="appeal-body" style="max-width:760px">
+        <div class="modal-title"><span>🧾 申诉中心</span><button class="modal-close" id="appeal-close">✕</button></div>
+        <div class="form-hint">如你认为管理员处理有误，可针对治理记录发起申诉。</div>
+        <div id="appeal-events" style="max-height:180px;overflow:auto;margin-top:8px"></div>
+        <div style="margin-top:12px">
+          <label class="form-label">选择治理记录 ID（仅你的）</label>
+          <input id="appeal-event-id" class="form-input" placeholder="例如：23">
+        </div>
+        <div style="margin-top:8px">
+          <label class="form-label">申诉说明</label>
+          <textarea id="appeal-content" class="form-textarea" placeholder="请客观说明申诉理由（至少5字）"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn-primary" id="appeal-submit">提交申诉</button>
+          <button class="btn-outline" id="appeal-refresh">刷新记录</button>
+        </div>
+        <div id="appeal-msg" style="margin-top:8px"></div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:8px">我的申诉进度</div>
+        <div id="appeal-list" style="max-height:190px;overflow:auto"></div>
+      </div>
+    </div>`;
+
+  const close = () => (root.innerHTML = "");
+  document.getElementById("appeal-close").addEventListener("click", close);
+  document.getElementById("appeal-overlay").addEventListener("click", (e) => { if (e.target.id === "appeal-overlay") close(); });
+  document.getElementById("appeal-body").addEventListener("click", (e) => e.stopPropagation());
+
+  const load = async () => {
+    const eventBox = document.getElementById("appeal-events");
+    const listBox = document.getElementById("appeal-list");
+    eventBox.innerHTML = "加载中...";
+    listBox.innerHTML = "加载中...";
+    try {
+      const [events, appeals] = await Promise.all([
+        apiFetch("/api/auth/moderation-events?page=1&size=30"),
+        apiFetch("/api/auth/appeals?page=1&size=30"),
+      ]);
+      eventBox.innerHTML = events.length ? events.map(e => `
+        <div class="comment-item" style="padding:10px 12px">
+          <div style="font-size:13px;color:var(--text2)">ID ${e.id} · ${escapeHTML(e.scene)} · ${timeAgo(e.created_at)}</div>
+          <div style="font-size:14px;margin-top:4px">${escapeHTML(e.reason || "（无详细原因）")}</div>
+        </div>
+      `).join("") : `<div class="empty-state">暂无治理记录</div>`;
+      listBox.innerHTML = appeals.length ? appeals.map(a => `
+        <div class="comment-item" style="padding:10px 12px">
+          <div style="font-size:13px;color:var(--text2)">申诉 #${a.id} · 记录ID ${a.moderation_log_id} · ${timeAgo(a.created_at)}</div>
+          <div style="font-size:14px;margin-top:4px">${escapeHTML(a.content || "")}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">状态：${escapeHTML(a.status)} ${a.admin_reply ? "· 回复：" + escapeHTML(a.admin_reply) : ""}</div>
+        </div>
+      `).join("") : `<div class="empty-state">暂无申诉</div>`;
+    } catch (e) {
+      eventBox.innerHTML = `<div class="empty-state" style="color:var(--danger)">${escapeHTML(e.message)}</div>`;
+      listBox.innerHTML = "";
+    }
+  };
+
+  document.getElementById("appeal-refresh").addEventListener("click", load);
+  document.getElementById("appeal-submit").addEventListener("click", async () => {
+    const msg = document.getElementById("appeal-msg");
+    const eventId = parseInt(document.getElementById("appeal-event-id").value || "", 10);
+    const content = (document.getElementById("appeal-content").value || "").trim();
+    msg.innerHTML = "";
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      msg.innerHTML = `<div class="form-error">请输入有效治理记录 ID</div>`;
+      return;
+    }
+    if (content.length < 5) {
+      msg.innerHTML = `<div class="form-error">申诉内容至少 5 个字符</div>`;
+      return;
+    }
+    try {
+      await apiFetch("/api/auth/appeals", {
+        method: "POST",
+        body: { moderation_log_id: eventId, content },
+      });
+      msg.innerHTML = `<div class="form-success">申诉已提交</div>`;
+      document.getElementById("appeal-content").value = "";
+      await load();
+    } catch (e) {
+      msg.innerHTML = `<div class="form-error">${escapeHTML(e.message)}</div>`;
+    }
+  });
+
+  await load();
 }
 
 // ============================================================
