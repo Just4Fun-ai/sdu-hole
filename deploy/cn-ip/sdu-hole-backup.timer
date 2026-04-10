@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SDU Hole backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=sdu-hole-backup.service
+
+[Install]
+WantedBy=timers.target

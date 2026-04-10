@@ -113,3 +113,29 @@ systemctl restart nginx
 2. 域名解析到服务器 IP
 3. 用 Nginx + Let's Encrypt 配 HTTPS
 4. 把 `CORS_ORIGINS` 从 `*` 改成你的正式域名
+
+## 10. 自动备份（强烈建议）
+
+在服务器终端执行（SSH 后）：
+
+```bash
+sudo bash /opt/sdu-hole/app/deploy/cn-ip/install_backup_timer.sh
+```
+
+默认行为：
+- 每天 `03:30` 自动备份一次
+- 备份内容：数据库 + 上传图片目录
+- 备份目录：`/opt/sdu-hole/backups`
+- 默认保留 14 天（可在 `backup_sdu_hole.sh` 里改 `RETENTION_DAYS`）
+
+手动备份：
+
+```bash
+sudo bash /opt/sdu-hole/app/deploy/cn-ip/backup_sdu_hole.sh
+```
+
+恢复：
+
+```bash
+sudo bash /opt/sdu-hole/app/deploy/cn-ip/restore_sdu_hole.sh /opt/sdu-hole/backups/你的备份包.tar.gz
+```

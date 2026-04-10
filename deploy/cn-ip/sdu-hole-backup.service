@@ -1,0 +1,8 @@
+[Unit]
+Description=SDU Hole Daily Backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/sdu-hole/app/deploy/cn-ip/backup_sdu_hole.sh
