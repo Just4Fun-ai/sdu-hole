@@ -26,6 +26,10 @@ tar \
   --exclude=".DS_Store" \
   --exclude="._*" \
   --exclude="__MACOSX" \
+  --exclude="sdu-hole/.env" \
+  --exclude="sdu-hole/sdu_hole.db" \
+  --exclude="**/__pycache__" \
+  --exclude="**/*.pyc" \
   -czf "${ARCHIVE_LOCAL}" \
   -C "${ROOT_DIR}" .
 
@@ -35,9 +39,19 @@ scp "${ARCHIVE_LOCAL}" "${SERVER_USER}@${SERVER_IP}:${ARCHIVE_REMOTE}"
 echo "==> Deploying on server (may ask sudo password)"
 ssh -t "${SERVER_USER}@${SERVER_IP}" "
 set -euo pipefail
+ENV_BAK='/tmp/sdu-hole.env.bak'
+if [ -f '${APP_DIR}/sdu-hole/.env' ]; then
+  sudo cp '${APP_DIR}/sdu-hole/.env' \"\$ENV_BAK\"
+fi
+
 sudo mkdir -p '${APP_DIR}'
 sudo rm -rf '${APP_DIR}'/*
 sudo tar -xzf ~/sdu-hole.tar.gz -C '${APP_DIR}'
+
+if [ -f \"\$ENV_BAK\" ]; then
+  sudo mkdir -p '${APP_DIR}/sdu-hole'
+  sudo mv \"\$ENV_BAK\" '${APP_DIR}/sdu-hole/.env'
+fi
 
 if [ \"\${SKIP_PIP:-0}\" != \"1\" ]; then
   sudo /opt/sdu-hole/venv/bin/pip install -r '${APP_DIR}/sdu-hole/requirements.txt'
@@ -51,4 +65,3 @@ sudo systemctl --no-pager --full status sdu-hole | sed -n '1,20p'
 echo
 echo "==> Deploy complete"
 echo "Open: http://${SERVER_IP}"
-
