@@ -206,6 +206,14 @@
   }
   .char-counter { text-align:right; font-size:12px; color:var(--text3); margin-top:4px; }
   .modal-note { text-align:center; font-size:12px; color:var(--text3); margin-top:14px; }
+  .agreement-modal-content { max-width:860px; max-height:88vh; }
+  .agreement-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
+  .agreement-col { border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
+  .agreement-col-head { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-size:13px; border-bottom:1px solid var(--border-light); color:var(--text2); }
+  .agreement-frame { width:100%; height:320px; border:none; background:#fff; }
+  .agreement-status { font-size:12px; color:var(--text3); }
+  .agreement-status.done { color:var(--accent); font-weight:600; }
+  .agreement-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:10px; }
 
   /* ---- Detail ---- */
   .detail-header {
@@ -522,7 +530,98 @@ async function bootstrapAuth() {
 // ---- LOGIN ----
 let loginStep = "input", loginStudentId = "", loginCode = "", loginCountdown = 0, loginTimer = null;
 let loginAgreementAccepted = localStorage.getItem("sdu_agree_terms") === "1";
+let loginAgreementAcceptedOnce = localStorage.getItem("sdu_agree_terms_once") === "1";
 let bindNickname = "";
+
+function showAgreementReadModal(onConfirm) {
+  const old = document.getElementById("agreement-modal");
+  if (old) old.remove();
+
+  const wrap = document.createElement("div");
+  wrap.id = "agreement-modal";
+  wrap.className = "modal-overlay";
+  wrap.innerHTML = `
+    <div class="modal-content agreement-modal-content" id="agreement-body">
+      <div class="modal-title"><span>请先阅读并同意协议</span><button class="modal-close" id="agreement-close">✕</button></div>
+      <div class="form-hint">首次使用需阅读《用户协议》和《隐私政策》，并分别滚动到底后才可同意。</div>
+      <div class="agreement-grid">
+        <div class="agreement-col">
+          <div class="agreement-col-head">
+            <span>《用户协议》</span>
+            <span class="agreement-status" id="agree-status-ua">未读到底</span>
+          </div>
+          <iframe class="agreement-frame" id="agree-frame-ua" src="./user-agreement.html" title="用户协议"></iframe>
+        </div>
+        <div class="agreement-col">
+          <div class="agreement-col-head">
+            <span>《隐私政策》</span>
+            <span class="agreement-status" id="agree-status-pp">未读到底</span>
+          </div>
+          <iframe class="agreement-frame" id="agree-frame-pp" src="./privacy-policy.html" title="隐私政策"></iframe>
+        </div>
+      </div>
+      <div class="agreement-actions">
+        <button class="btn-outline" id="agreement-cancel">暂不同意</button>
+        <button class="btn-primary" id="agreement-confirm" disabled>我已阅读并同意</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  const state = { ua: false, pp: false };
+  const statusUa = document.getElementById("agree-status-ua");
+  const statusPp = document.getElementById("agree-status-pp");
+  const confirmBtn = document.getElementById("agreement-confirm");
+
+  const refresh = () => {
+    statusUa.textContent = state.ua ? "已读到底" : "未读到底";
+    statusUa.classList.toggle("done", state.ua);
+    statusPp.textContent = state.pp ? "已读到底" : "未读到底";
+    statusPp.classList.toggle("done", state.pp);
+    confirmBtn.disabled = !(state.ua && state.pp);
+  };
+
+  const bindReadDetector = (frameId, key) => {
+    const frame = document.getElementById(frameId);
+    if (!frame) return;
+    frame.addEventListener("load", () => {
+      try {
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+        const check = () => {
+          if (!win || !doc) return;
+          const scrollTop = win.scrollY || doc.documentElement.scrollTop || doc.body.scrollTop || 0;
+          const clientH = win.innerHeight || frame.clientHeight || 0;
+          const scrollH = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+          if (scrollTop + clientH >= scrollH - 24) {
+            state[key] = true;
+            refresh();
+          }
+        };
+        win.addEventListener("scroll", check, { passive: true });
+        check();
+      } catch (_) {
+        // 若浏览器限制读取 iframe 滚动状态，则退化为可点击同意（不影响主流程）
+        state[key] = true;
+        refresh();
+      }
+    });
+  };
+
+  bindReadDetector("agree-frame-ua", "ua");
+  bindReadDetector("agree-frame-pp", "pp");
+  refresh();
+
+  const close = () => wrap.remove();
+  document.getElementById("agreement-close").addEventListener("click", close);
+  document.getElementById("agreement-cancel").addEventListener("click", close);
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  document.getElementById("agreement-body").addEventListener("click", (e) => e.stopPropagation());
+
+  confirmBtn.addEventListener("click", () => {
+    close();
+    if (typeof onConfirm === "function") onConfirm();
+  });
+}
 
 function renderLogin() {
   const emailPreview = loginStudentId.length >= 6
@@ -594,6 +693,22 @@ function bindLogin() {
     const verifyBtn = document.getElementById("btn-verify");
     if (verifyBtn) verifyBtn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
   };
+  if (agree) {
+    agree.addEventListener("click", (e) => {
+      // 首次勾选时必须先弹窗阅读到末尾
+      if (!agree.checked && !loginAgreementAcceptedOnce) {
+        e.preventDefault();
+        showAgreementReadModal(() => {
+          loginAgreementAcceptedOnce = true;
+          loginAgreementAccepted = true;
+          localStorage.setItem("sdu_agree_terms_once", "1");
+          localStorage.setItem("sdu_agree_terms", "1");
+          agree.checked = true;
+          applyAgreementState();
+        });
+      }
+    });
+  }
   if (agree) agree.addEventListener("change", applyAgreementState);
 
   if (loginStep === "input") {
