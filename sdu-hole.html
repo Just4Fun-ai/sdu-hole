@@ -256,12 +256,15 @@
 <script>
   // 优先级:
   // 1) window.__SDU_API_BASE__（可由部署平台注入）
-  // 2) localStorage.sdu_api_base
-  // 3) 本地默认地址
+  // 2) 当前站点同源（线上默认）
+  // 3) localStorage.sdu_api_base（仅调试用途）
+  // 4) 本地默认地址
+  const SAME_ORIGIN_BASE = location.protocol.startsWith("http") ? location.origin : "";
+  const DEBUG_API_BASE = (localStorage.getItem("sdu_api_base") || "").trim();
   const API_BASE =
     window.__SDU_API_BASE__ ||
-    localStorage.getItem("sdu_api_base") ||
-    (location.protocol.startsWith("http") ? location.origin : "") ||
+    SAME_ORIGIN_BASE ||
+    DEBUG_API_BASE ||
     "http://localhost:8000";
 </script>
 
@@ -380,11 +383,16 @@ function getDisplayTags() {
 async function apiFetch(path, opts={}) {
   const headers = { "Content-Type": "application/json" };
   if (state.token) headers["Authorization"] = "Bearer " + state.token;
-  const res = await fetch(API_BASE + path, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(API_BASE + path, {
+      method: opts.method || "GET",
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch (e) {
+    throw new Error(`网络连接失败（API=${API_BASE}）`);
+  }
   if (!res.ok) {
     const err = await res.json().catch(()=>({}));
     if (res.status === 401) {
