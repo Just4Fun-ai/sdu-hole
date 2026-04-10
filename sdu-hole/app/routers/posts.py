@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.like import Like
+from app.models.favorite import Favorite
 from app.models.report import Report
 from app.schemas.post import PostCreate, PostResponse, CommentCreate, CommentResponse, ReportCreate
 from app.utils.security import get_current_user
@@ -39,6 +40,8 @@ def ensure_nickname_bound(user: User):
 async def list_posts(
     tag: Optional[str] = Query(None, description="按标签筛选"),
     order: str = Query("new", description="排序: new=最新, hot=最热"),
+    mine: bool = Query(False, description="仅看我的帖子"),
+    favorited: bool = Query(False, description="仅看收藏"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -49,6 +52,10 @@ async def list_posts(
 
     if tag:
         query = query.where(Post.tag == tag)
+    if mine:
+        query = query.where(Post.user_id == user.id)
+    if favorited:
+        query = query.join(Favorite, Favorite.post_id == Post.id).where(Favorite.user_id == user.id)
 
     if order == "hot":
         query = query.order_by(desc(Post.like_count))
@@ -69,6 +76,13 @@ async def list_posts(
         )
     )
     liked_ids = set(liked_result.scalars().all())
+    favorited_result = await db.execute(
+        select(Favorite.post_id).where(
+            Favorite.user_id == user.id,
+            Favorite.post_id.in_(post_ids),
+        )
+    )
+    favorited_ids = set(favorited_result.scalars().all())
 
     return [
         PostResponse(
@@ -81,6 +95,7 @@ async def list_posts(
             created_at=p.created_at,
             is_liked=p.id in liked_ids,
             is_mine=p.user_id == user.id,
+            is_favorited=p.id in favorited_ids,
         )
         for p in posts
     ]
@@ -148,6 +163,7 @@ async def create_post(
         created_at=post.created_at,
         is_liked=False,
         is_mine=True,
+        is_favorited=False,
     )
 
 
@@ -168,11 +184,15 @@ async def get_post(
         select(Like).where(Like.user_id == user.id, Like.target_type == "post", Like.target_id == post_id)
     )
     is_liked = liked.scalar_one_or_none() is not None
+    favored = await db.execute(
+        select(Favorite).where(Favorite.user_id == user.id, Favorite.post_id == post_id)
+    )
 
     return PostResponse(
         id=post.id, anon_name=normalize_display_name(post.anon_name, f"同学{post.user_id}"), content=post.content,
         tag=post.tag, like_count=post.like_count, comment_count=post.comment_count,
         created_at=post.created_at, is_liked=is_liked, is_mine=post.user_id == user.id,
+        is_favorited=favored.scalar_one_or_none() is not None,
     )
 
 
@@ -203,6 +223,30 @@ async def toggle_like(
         db.add(Like(user_id=user.id, target_type="post", target_id=post_id))
         post.like_count += 1
         return {"liked": True, "like_count": post.like_count}
+
+
+@router.post("/{post_id}/favorite", summary="收藏/取消收藏")
+async def toggle_favorite(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_nickname_bound(user)
+    post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(404, "帖子不存在")
+
+    fav_result = await db.execute(
+        select(Favorite).where(Favorite.user_id == user.id, Favorite.post_id == post_id)
+    )
+    existing = fav_result.scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+        return {"favorited": False}
+
+    db.add(Favorite(user_id=user.id, post_id=post_id))
+    return {"favorited": True}
 
 
 @router.delete("/{post_id}", summary="删除自己的帖子")
@@ -256,7 +300,8 @@ async def list_comments(
 
     return [
         CommentResponse(
-            id=c.id, post_id=c.post_id, anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
+            id=c.id, post_id=c.post_id, parent_id=c.parent_id,
+            anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
             content=c.content, like_count=c.like_count,
             created_at=c.created_at, is_liked=c.id in liked_ids,
         )
@@ -278,6 +323,18 @@ async def create_comment(
     if not post:
         raise HTTPException(404, "帖子不存在")
 
+    parent_id = req.parent_id
+    if parent_id is not None:
+        parent_result = await db.execute(
+            select(Comment).where(
+                Comment.id == parent_id,
+                Comment.post_id == post_id,
+                Comment.is_deleted == False,
+            )
+        )
+        if parent_result.scalar_one_or_none() is None:
+            raise HTTPException(400, "回复目标不存在")
+
     content = req.content.strip()
     if len(content) < 1 or len(content) > 500:
         raise HTTPException(400, "评论长度需在1-500字之间")
@@ -296,6 +353,7 @@ async def create_comment(
     comment = Comment(
         post_id=post_id,
         user_id=user.id,
+        parent_id=parent_id,
         anon_name=user.nickname or f"同学{user.id}",
         content=content,
     )
@@ -305,7 +363,8 @@ async def create_comment(
     await db.refresh(comment)
 
     return CommentResponse(
-        id=comment.id, post_id=comment.post_id, anon_name=normalize_display_name(comment.anon_name, f"同学{comment.user_id}"),
+        id=comment.id, post_id=comment.post_id, parent_id=comment.parent_id,
+        anon_name=normalize_display_name(comment.anon_name, f"同学{comment.user_id}"),
         content=comment.content, like_count=0, created_at=comment.created_at,
         is_liked=False,
     )

@@ -283,6 +283,7 @@ let state = {
   comments: [],
   activeTag: "全部",
   order: "new",
+  feedMode: "all", // all | mine | favorites
   keyword: "",
   authChecked: false,
   authChecking: false,
@@ -678,11 +679,19 @@ function renderFeed() {
             <span class="logo-text">山大树洞</span>
             <span class="badge-beta">BETA</span>
           </div>
-          <button class="btn-outline" id="btn-logout">退出登录</button>
+          <div style="display:flex;gap:8px">
+            ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
+            <button class="btn-outline" id="btn-logout">退出登录</button>
+          </div>
         </div>
         <div class="tab-bar">
           <button class="tab-btn ${state.order==="new"?"active":""}" data-order="new">🕐 最新</button>
           <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
+        </div>
+        <div class="tab-bar">
+          <button class="tab-btn ${state.feedMode==="all"?"active":""}" data-mode="all">全部</button>
+          <button class="tab-btn ${state.feedMode==="mine"?"active":""}" data-mode="mine">我的</button>
+          <button class="tab-btn ${state.feedMode==="favorites"?"active":""}" data-mode="favorites">收藏</button>
         </div>
         <div class="search-row">
           <input id="search-input" class="search-input" placeholder="搜索关键词" value="${escapeAttr(state.keyword)}">
@@ -706,7 +715,11 @@ function bindFeed() {
     render();
   });
   document.querySelectorAll(".tab-btn").forEach(el => {
-    el.addEventListener("click", () => { state.order = el.dataset.order; render(); });
+    el.addEventListener("click", () => {
+      if (el.dataset.order) state.order = el.dataset.order;
+      if (el.dataset.mode) state.feedMode = el.dataset.mode;
+      render();
+    });
   });
   document.querySelectorAll(".tag-pill").forEach(el => {
     el.addEventListener("click", () => { state.activeTag = el.dataset.tag; render(); });
@@ -719,6 +732,8 @@ function bindFeed() {
     });
   }
   document.getElementById("btn-new").addEventListener("click", showNewPostModal);
+  const adminBtn = document.getElementById("btn-admin");
+  if (adminBtn) adminBtn.addEventListener("click", showAdminPanel);
 }
 
 async function loadPosts() {
@@ -726,6 +741,8 @@ async function loadPosts() {
   try {
     const params = new URLSearchParams({ order: state.order, page: "1", size: "50" });
     if (state.activeTag !== "全部") params.set("tag", state.activeTag);
+    if (state.feedMode === "mine") params.set("mine", "true");
+    if (state.feedMode === "favorites") params.set("favorited", "true");
     state.posts = await apiFetch("/api/posts/?" + params);
     renderPostList();
   } catch(e) {
@@ -783,6 +800,7 @@ function bindPostListInteractions(list) {
     el.addEventListener("click", () => {
       const id = parseInt(el.dataset.id);
       state.selectedPost = state.posts.find(p => p.id === id);
+      replyTargetCommentId = null;
       state.page = "detail";
       render();
     });
@@ -799,6 +817,22 @@ function bindPostListInteractions(list) {
         const p = state.posts.find(x => x.id === id);
         if (p) { p.is_liked = data.liked; p.like_count = data.like_count; }
       } catch(err) { console.error(err); }
+    });
+  });
+
+  list.querySelectorAll("[data-fav]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.fav);
+      try {
+        const data = await apiFetch(`/api/posts/${id}/favorite`, { method: "POST" });
+        const p = state.posts.find(x => x.id === id);
+        if (p) p.is_favorited = data.favorited;
+        btn.classList.toggle("liked", data.favorited);
+        btn.textContent = data.favorited ? "⭐ 收藏" : "☆ 收藏";
+      } catch (err) {
+        alert(err.message);
+      }
     });
   });
 
@@ -1059,6 +1093,7 @@ function renderPostList() {
       ${reviewMetaHTML(p)}
       <div class="post-content">${postContentPreview(p)}</div>
       <div class="post-actions">
+        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐":"☆"} 收藏</button>
         <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
         <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
         <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
@@ -1083,6 +1118,8 @@ function detailContentHTML(post) {
 }
 
 // ---- DETAIL ----
+let replyTargetCommentId = null;
+
 function renderDetail() {
   const p = state.selectedPost;
   return `
@@ -1101,6 +1138,9 @@ function renderDetail() {
         </div>
         ${detailContentHTML(p)}
         <div class="post-actions" style="margin-top:12px">
+          <button class="action-btn ${p.is_favorited?"liked":""}" id="detail-fav-btn">
+            ${p.is_favorited ? "⭐ 收藏" : "☆ 收藏"}
+          </button>
           <button class="action-btn ${p.is_liked?"liked":""}" id="detail-like-btn">
             ${p.is_liked?"❤️":"🤍"} <span id="detail-like-count">${p.like_count}</span>
           </button>
@@ -1115,6 +1155,9 @@ function renderDetail() {
       <div style="height:80px"></div>
     </div>
     <div class="comment-bar">
+      <div id="reply-hint" style="font-size:12px;color:var(--text2);margin-bottom:6px;${replyTargetCommentId ? '' : 'display:none;'}">
+        正在回复 #${replyTargetCommentId || ""} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>
+      </div>
       <div class="comment-input-row">
         <input class="comment-input" id="comment-input" placeholder="写下你的回复..." maxlength="500">
         <button class="send-btn" id="btn-send-comment">发送</button>
@@ -1129,9 +1172,31 @@ function bindDetail() {
   document.getElementById("btn-back").addEventListener("click", () => { state.page = "feed"; state.selectedPost = null; render(); });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
   document.getElementById("comment-input").addEventListener("keydown", e => { if(e.key==="Enter") submitComment(); });
+  const cancelReplyBtn = document.getElementById("btn-cancel-reply");
+  if (cancelReplyBtn) {
+    cancelReplyBtn.addEventListener("click", () => {
+      replyTargetCommentId = null;
+      const hint = document.getElementById("reply-hint");
+      if (hint) hint.style.display = "none";
+    });
+  }
   document.querySelectorAll("[data-comment-emoji]").forEach(btn => {
     btn.addEventListener("click", () => appendEmojiToInput(document.getElementById("comment-input"), btn.dataset.commentEmoji));
   });
+
+  const favBtn = document.getElementById("detail-fav-btn");
+  if (favBtn) {
+    favBtn.addEventListener("click", async () => {
+      try {
+        const data = await apiFetch(`/api/posts/${state.selectedPost.id}/favorite`, { method: "POST" });
+        state.selectedPost.is_favorited = data.favorited;
+        const inList = state.posts.find(x => x.id === state.selectedPost.id);
+        if (inList) inList.is_favorited = data.favorited;
+        favBtn.classList.toggle("liked", data.favorited);
+        favBtn.textContent = data.favorited ? "⭐ 收藏" : "☆ 收藏";
+      } catch (e) { alert(e.message); }
+    });
+  }
 
   const likeBtn = document.getElementById("detail-like-btn");
   if (likeBtn) {
@@ -1207,10 +1272,11 @@ async function loadComments() {
       list.innerHTML = `<div class="empty-state">还没有回复，来说两句吧 ✍️</div>`;
     } else {
       list.innerHTML = state.comments.map((c, i) => `
-        <div class="comment-item" style="animation-delay:${i*50}ms">
+        <div class="comment-item" style="animation-delay:${i*50}ms;${c.parent_id ? "padding-left:16px;border-left:2px solid var(--border-light);" : ""}">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             ${avatarHTML(c.id * 3, c.anon_name, 24)}
             <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+            ${c.parent_id ? `<span style="font-size:12px;color:var(--text3)">回复 #${c.parent_id}</span>` : ""}
             <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
           </div>
           <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
@@ -1218,6 +1284,7 @@ async function loadComments() {
             <button class="action-btn ${c.is_liked?"liked":""}" data-like-comment="${c.id}">
               ${c.is_liked?"❤️":"🤍"} <span>${c.like_count}</span>
             </button>
+            <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
             <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
           </div>
         </div>
@@ -1259,6 +1326,26 @@ function bindCommentActions() {
       } catch (e) { alert(e.message); }
     });
   });
+
+  list.querySelectorAll("[data-reply-comment]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      replyTargetCommentId = parseInt(btn.dataset.replyComment);
+      const hint = document.getElementById("reply-hint");
+      if (hint) {
+        hint.style.display = "";
+        hint.innerHTML = `正在回复 #${replyTargetCommentId} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>`;
+        const cancelReplyBtn = document.getElementById("btn-cancel-reply");
+        if (cancelReplyBtn) {
+          cancelReplyBtn.addEventListener("click", () => {
+            replyTargetCommentId = null;
+            hint.style.display = "none";
+          });
+        }
+      }
+      const input = document.getElementById("comment-input");
+      if (input) input.focus();
+    });
+  });
 }
 
 async function submitComment() {
@@ -1268,23 +1355,31 @@ async function submitComment() {
   const btn = document.getElementById("btn-send-comment");
   btn.disabled = true; btn.textContent = "...";
   try {
-    const c = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, { method:"POST", body:{content} });
+    const c = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
+      method:"POST",
+      body:{content, parent_id: replyTargetCommentId}
+    });
     state.comments.push(c);
     input.value = "";
+    replyTargetCommentId = null;
+    const hint = document.getElementById("reply-hint");
+    if (hint) hint.style.display = "none";
     document.getElementById("comment-count").textContent = state.comments.length;
     // Append
     const list = document.getElementById("comments-list");
     if (state.comments.length === 1) list.innerHTML = "";
     list.innerHTML += `
-      <div class="comment-item" style="animation:fadeUp .3s ease-out">
+      <div class="comment-item" style="animation:fadeUp .3s ease-out;${c.parent_id ? "padding-left:16px;border-left:2px solid var(--border-light);" : ""}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           ${avatarHTML(c.id * 3, c.anon_name, 24)}
           <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+          ${c.parent_id ? `<span style="font-size:12px;color:var(--text3)">回复 #${c.parent_id}</span>` : ""}
           <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
         </div>
         <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
         <div class="post-actions" style="padding-left:32px;margin-top:8px">
           <button class="action-btn" data-like-comment="${c.id}">🤍 <span>0</span></button>
+          <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
           <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
         </div>
       </div>`;
@@ -1294,6 +1389,108 @@ async function submitComment() {
     alert(e.message);
   }
   btn.disabled = false; btn.textContent = "发送";
+}
+
+// ---- ADMIN PANEL ----
+async function showAdminPanel() {
+  if (!state.isAdmin) return;
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+    <div class="modal-overlay" id="admin-overlay">
+      <div class="modal-content" id="admin-body" style="max-width:760px">
+        <div class="modal-title"><span>🛠 管理面板</span><button class="modal-close" id="admin-close">✕</button></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" data-admin-tab="reports">举报队列</button>
+          <button class="tab-btn" data-admin-tab="hits">敏感命中</button>
+        </div>
+        <div id="admin-content" style="max-height:55vh;overflow:auto;padding-top:8px">加载中...</div>
+      </div>
+    </div>`;
+
+  const close = () => { root.innerHTML = ""; };
+  document.getElementById("admin-close").addEventListener("click", close);
+  document.getElementById("admin-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "admin-overlay") close();
+  });
+  document.getElementById("admin-body").addEventListener("click", e => e.stopPropagation());
+
+  const loadTab = async (tab) => {
+    const box = document.getElementById("admin-content");
+    box.innerHTML = "加载中...";
+    try {
+      if (tab === "reports") {
+        const rows = await apiFetch("/api/admin/reports?page=1&size=50");
+        if (!rows.length) { box.innerHTML = `<div class="empty-state">暂无举报</div>`; return; }
+        box.innerHTML = rows.map(r => `
+          <div class="comment-item">
+            <div style="font-size:13px;color:var(--text2)">#${r.id} ${r.target_type}:${r.target_id} · 举报人:${r.report_user_id}</div>
+            <div style="font-size:14px;margin:6px 0">${escapeHTML(r.reason || "（无理由）")}</div>
+            <div class="post-actions">
+              ${r.target_type === "post" ? `<button class="action-btn warn" data-admin-del-post="${r.target_id}">🗑 删帖</button>` : ""}
+              ${r.target_type === "post" ? `<button class="action-btn warn" data-admin-ban-post-author="${r.target_id}">⛔ 禁言作者</button>` : ""}
+              ${r.target_type === "comment" ? `<button class="action-btn warn" data-admin-del-comment="${r.target_id}">🗑 删评论</button>` : ""}
+            </div>
+          </div>
+        `).join("");
+        bindAdminActions();
+      } else {
+        const rows = await apiFetch("/api/admin/moderation-hits?page=1&size=50");
+        if (!rows.length) { box.innerHTML = `<div class="empty-state">暂无命中记录</div>`; return; }
+        box.innerHTML = rows.map(r => `
+          <div class="comment-item">
+            <div style="font-size:13px;color:var(--text2)">#${r.id} ${escapeHTML(r.scene)} · user:${r.user_id ?? "-"}</div>
+            <div style="font-size:14px;margin:6px 0">${escapeHTML(r.content_preview || "")}</div>
+            <div style="font-size:12px;color:var(--text3)">${escapeHTML(r.reason || "")}</div>
+          </div>
+        `).join("");
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="empty-state" style="color:var(--danger)">${escapeHTML(e.message)}</div>`;
+    }
+  };
+
+  document.querySelectorAll("[data-admin-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-admin-tab]").forEach(x => x.classList.remove("active"));
+      btn.classList.add("active");
+      loadTab(btn.dataset.adminTab);
+    });
+  });
+
+  loadTab("reports");
+}
+
+function bindAdminActions() {
+  document.querySelectorAll("[data-admin-del-post]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.adminDelPost);
+      if (!confirm(`确认删除帖子 #${id} ?`)) return;
+      try {
+        await apiFetch(`/api/admin/posts/${id}`, { method: "DELETE" });
+        btn.closest(".comment-item")?.remove();
+      } catch (e) { alert(e.message); }
+    });
+  });
+  document.querySelectorAll("[data-admin-ban-post-author]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.adminBanPostAuthor);
+      if (!confirm(`确认禁言帖子 #${id} 的作者?`)) return;
+      try {
+        await apiFetch(`/api/admin/posts/${id}/ban-author`, { method: "POST" });
+        alert("已禁言作者");
+      } catch (e) { alert(e.message); }
+    });
+  });
+  document.querySelectorAll("[data-admin-del-comment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.adminDelComment);
+      if (!confirm(`确认删除评论 #${id} ?`)) return;
+      try {
+        await apiFetch(`/api/admin/comments/${id}`, { method: "DELETE" });
+        btn.closest(".comment-item")?.remove();
+      } catch (e) { alert(e.message); }
+    });
+  });
 }
 
 // ============================================================
