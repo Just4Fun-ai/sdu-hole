@@ -307,12 +307,32 @@ function tagChipHTML(tag) {
 }
 
 function timeAgo(dateStr) {
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  const d = parseServerDate(dateStr);
+  if (!d) return "";
+  const diff = Math.floor((Date.now() - d.getTime()) / 1000);
   if (diff < 60) return "刚刚";
   if (diff < 3600) return Math.floor(diff/60) + " 分钟前";
   if (diff < 86400) return Math.floor(diff/3600) + " 小时前";
   if (diff < 604800) return Math.floor(diff/86400) + " 天前";
-  return new Date(dateStr).toLocaleDateString("zh-CN");
+  return d.toLocaleDateString("zh-CN");
+}
+
+function parseServerDate(dateStr) {
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return dateStr;
+  let s = String(dateStr).trim();
+  // 后端 SQLite 常返回无时区格式：YYYY-MM-DD HH:mm:ss
+  // 该格式在浏览器会按本地时区解释，导致和 UTC 存储相差 8 小时。
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+    s = s.replace(" ", "T");
+  }
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)
+  ) {
+    s += "Z";
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function avatarHTML(id, name, size=30) {
