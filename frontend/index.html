@@ -709,6 +709,8 @@ let state = {
     index: 0,
     zoom: 1,
   },
+  detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
+  meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
 
 function applyTouchLayoutClass() {
@@ -873,10 +875,51 @@ async function jumpToHole(raw) {
   const id = parseHoleIdInput(raw);
   if (!id) throw new Error("请输入有效洞号，例如 sdu-260410-12 或 12");
   const post = await apiFetch(`/api/posts/${id}`);
+  openDetailPage(post);
+}
+
+function snapshotNavContext() {
+  return {
+    page: state.page,
+    meTab: state.meTab,
+    selectedPost: state.selectedPost ? { ...state.selectedPost } : null,
+    detailOnlyAuthor: !!state.detailOnlyAuthor,
+  };
+}
+
+function openDetailPage(post) {
+  state.detailBackCtx = snapshotNavContext();
   state.selectedPost = post;
   state.page = "detail";
   state.detailOnlyAuthor = false;
-  syncPostQuery(id);
+  syncPostQuery(post?.id || null);
+  render();
+}
+
+function goBackFromDetail() {
+  const ctx = state.detailBackCtx;
+  state.detailBackCtx = null;
+  if (ctx?.page === "me") {
+    state.page = "me";
+    if (ctx.meTab) state.meTab = ctx.meTab;
+    state.selectedPost = null;
+    state.detailOnlyAuthor = false;
+    syncPostQuery(null);
+    render();
+    return;
+  }
+  if (ctx?.page === "detail" && ctx.selectedPost?.id) {
+    state.page = "detail";
+    state.selectedPost = ctx.selectedPost;
+    state.detailOnlyAuthor = !!ctx.detailOnlyAuthor;
+    syncPostQuery(ctx.selectedPost.id);
+    render();
+    return;
+  }
+  state.page = "feed";
+  state.selectedPost = null;
+  state.detailOnlyAuthor = false;
+  syncPostQuery(null);
   render();
 }
 
@@ -1941,7 +1984,7 @@ function renderMe() {
             <span class="logo-text">我的主页</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-outline" id="btn-back-feed">返回首页</button>
+            <button class="btn-outline" id="btn-back-feed">返回</button>
           </div>
         </div>
       </div>
@@ -2015,6 +2058,7 @@ async function loadMeData() {
 }
 
 function openMePage() {
+  state.meBackCtx = snapshotNavContext();
   state.page = "me";
   state.meTab = "posts";
   state.meLoading = true;
@@ -2025,8 +2069,20 @@ function bindMe() {
   const backBtn = document.getElementById("btn-back-feed");
   if (backBtn) {
     backBtn.addEventListener("click", () => {
-      state.page = "feed";
-      state.feedDirty = true;
+      const ctx = state.meBackCtx;
+      state.meBackCtx = null;
+      if (ctx?.page === "detail" && ctx.selectedPost?.id) {
+        state.page = "detail";
+        state.selectedPost = ctx.selectedPost;
+        state.detailOnlyAuthor = !!ctx.detailOnlyAuthor;
+        syncPostQuery(ctx.selectedPost.id);
+      } else {
+        state.page = "feed";
+        state.selectedPost = null;
+        state.detailOnlyAuthor = false;
+        syncPostQuery(null);
+        state.feedDirty = true;
+      }
       render();
     });
   }
@@ -2056,11 +2112,8 @@ function bindMe() {
       const id = parseInt(el.dataset.mePost || "", 10);
       if (!Number.isFinite(id)) return;
       try {
-        state.selectedPost = await apiFetch(`/api/posts/${id}`);
-        state.page = "detail";
-        state.detailOnlyAuthor = false;
-        syncPostQuery(id);
-        render();
+        const post = await apiFetch(`/api/posts/${id}`);
+        openDetailPage(post);
       } catch (e) {
         showToast("帖子可能已删除");
       }
@@ -2071,11 +2124,8 @@ function bindMe() {
       const pid = parseInt(el.dataset.meNoticePost || "", 10);
       if (!Number.isFinite(pid)) return;
       try {
-        state.selectedPost = await apiFetch(`/api/posts/${pid}`);
-        state.page = "detail";
-        state.detailOnlyAuthor = false;
-        syncPostQuery(pid);
-        render();
+        const post = await apiFetch(`/api/posts/${pid}`);
+        openDetailPage(post);
       } catch (e) {
         showToast("帖子已不存在");
       }
@@ -2118,10 +2168,8 @@ function bindFeed() {
     const id = parseInt(topAnn.dataset.id);
     if (!Number.isFinite(id)) return;
     try {
-      state.selectedPost = await apiFetch(`/api/posts/${id}`);
-      state.page = "detail";
-      syncPostQuery(id);
-      render();
+      const post = await apiFetch(`/api/posts/${id}`);
+      openDetailPage(post);
     } catch (e) {
       showToast("公告详情加载失败");
     }
@@ -2188,6 +2236,7 @@ function bindMobileNav() {
     setTimeout(() => document.getElementById("btn-new")?.click(), 0);
   });
   document.getElementById("mnav-me")?.addEventListener("click", () => {
+    if (state.page === "me") return;
     openMePage();
   });
 }
@@ -2241,11 +2290,7 @@ async function loadPosts(opts = { append: false }) {
         try { target = await apiFetch(`/api/posts/${pid}`); } catch (_) {}
       }
       if (target) {
-        state.selectedPost = target;
-        state.detailOnlyAuthor = false;
-        state.page = "detail";
-        syncPostQuery(target.id);
-        render();
+        openDetailPage(target);
         return;
       }
     }
@@ -2321,12 +2366,10 @@ function bindPostListInteractions(list) {
   list.querySelectorAll(".post-card").forEach(el => {
     el.addEventListener("click", () => {
       const id = parseInt(el.dataset.id);
-      state.selectedPost = state.posts.find(p => p.id === id);
+      const post = state.posts.find(p => p.id === id);
+      if (!post) return;
       replyTargetCommentId = null;
-      state.detailOnlyAuthor = false;
-      state.page = "detail";
-      syncPostQuery(id);
-      render();
+      openDetailPage(post);
     });
   });
 
@@ -2596,11 +2639,9 @@ async function showNotifications() {
       el.addEventListener("click", async () => {
         const pid = parseInt(el.dataset.noticePost);
         try {
-          state.selectedPost = await apiFetch(`/api/posts/${pid}`);
-          state.page = "detail";
-          syncPostQuery(pid);
+          const post = await apiFetch(`/api/posts/${pid}`);
           close();
-          render();
+          openDetailPage(post);
         } catch (e) {
           showToast("帖子已不存在");
         }
@@ -3027,11 +3068,7 @@ function renderDetail() {
 
 function bindDetail() {
   document.getElementById("btn-back").addEventListener("click", () => {
-    state.page = "feed";
-    state.selectedPost = null;
-    state.detailOnlyAuthor = false;
-    syncPostQuery(null);
-    render();
+    goBackFromDetail();
   });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
   const commentInputEl = document.getElementById("comment-input");
