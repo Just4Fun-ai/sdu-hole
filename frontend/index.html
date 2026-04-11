@@ -494,8 +494,12 @@
     background:rgba(255,255,255,.96);
     border-top:1px solid var(--border);
     backdrop-filter:blur(8px);
-    display:none;
+    display:block;
   }
+  body.has-bottom-nav .container { padding-bottom:88px; }
+  body.has-bottom-nav .fab { display:none !important; }
+  body.has-bottom-nav .legal-fab { bottom:82px; }
+  body.has-bottom-nav .comment-bar { bottom:66px; }
   body.touch-device .mobile-nav { display:block !important; }
   body.touch-device .fab { display:none !important; }
   body.touch-device .legal-fab { bottom:82px; }
@@ -517,10 +521,11 @@
   }
   .mobile-nav-btn.active { color:var(--accent); background:var(--accent-soft); }
   .mobile-nav-btn.center {
-    width:46px; height:46px; margin:0 auto;
-    border-radius:14px; font-weight:700; color:#fff;
+    width:48px; height:48px; margin:0 auto;
+    border-radius:15px; font-weight:700; color:#fff;
     background:var(--accent); font-size:22px;
     box-shadow:0 6px 16px rgba(166,27,41,.3);
+    border:1px solid rgba(255,255,255,.35);
   }
   .mobile-nav-dot { width:7px; height:7px; border-radius:999px; background:var(--accent); display:inline-block; }
   .comment-bar {
@@ -1094,6 +1099,15 @@ function validateStudentIdClient(sid) {
 // ============================================================
 function render() {
   const app = document.getElementById("app");
+  const shouldShowBottomNav =
+    !!state.token &&
+    (
+      state.page === "feed" ||
+      state.page === "me" ||
+      (state.page === "detail" && !!state.selectedPost)
+    );
+  document.body.classList.toggle("has-bottom-nav", shouldShowBottomNav);
+
   if (!state.deepLinkInitialized) {
     state.pendingPostId = getInitialPostId();
     state.deepLinkInitialized = true;
