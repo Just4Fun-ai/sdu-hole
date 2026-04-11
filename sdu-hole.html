@@ -474,6 +474,11 @@
     backdrop-filter:blur(8px);
     display:none;
   }
+  body.touch-device .mobile-nav { display:block !important; }
+  body.touch-device .fab { display:none !important; }
+  body.touch-device .legal-fab { bottom:82px; }
+  body.touch-device .comment-bar { bottom:66px; }
+  body.touch-device .container { padding-bottom:84px; }
   .mobile-nav-wrap {
     max-width:640px;
     margin:0 auto;
@@ -587,10 +592,39 @@
 // ============================================================
 // State
 // ============================================================
+function getStoredToken() {
+  const rememberToken = localStorage.getItem("sdu_token");
+  const rememberUntil = Number(localStorage.getItem("sdu_token_expire_at") || 0);
+  if (rememberToken && rememberUntil && Date.now() < rememberUntil) return rememberToken;
+  if (rememberToken && rememberUntil && Date.now() >= rememberUntil) {
+    localStorage.removeItem("sdu_token");
+    localStorage.removeItem("sdu_token_expire_at");
+  }
+  return sessionStorage.getItem("sdu_token") || "";
+}
+
+function saveToken(token, rememberMe) {
+  if (rememberMe) {
+    localStorage.setItem("sdu_token", token);
+    localStorage.setItem("sdu_token_expire_at", String(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    sessionStorage.removeItem("sdu_token");
+  } else {
+    sessionStorage.setItem("sdu_token", token);
+    localStorage.removeItem("sdu_token");
+    localStorage.removeItem("sdu_token_expire_at");
+  }
+}
+
+function clearToken() {
+  sessionStorage.removeItem("sdu_token");
+  localStorage.removeItem("sdu_token");
+  localStorage.removeItem("sdu_token_expire_at");
+}
+
 let state = {
-  token: sessionStorage.getItem("sdu_token") || "",
+  token: getStoredToken(),
   isAdmin: false,
-  page: "feed",        // login | bind | feed | me | detail
+  page: "feed",        // login | bind | set_password | feed | me | detail
   posts: [],
   mePosts: [],
   meFavorites: [],
@@ -629,6 +663,14 @@ let state = {
     zoom: 1,
   },
 };
+
+function applyTouchLayoutClass() {
+  try {
+    const mq = window.matchMedia?.("(hover: none), (pointer: coarse)");
+    const isTouch = Boolean(mq?.matches || navigator.maxTouchPoints > 0 || ("ontouchstart" in window));
+    document.body.classList.toggle("touch-device", isTouch);
+  } catch (_) {}
+}
 
 function initLegalFab() {
   const fab = document.getElementById("legal-fab");
@@ -930,7 +972,7 @@ async function apiFetch(path, opts={}) {
     const err = await res.json().catch(()=>({}));
     if (res.status === 401) {
       state.token = "";
-      sessionStorage.removeItem("sdu_token");
+      clearToken();
       render();
       throw new Error("登录已过期，请重新登录");
     }
@@ -1027,6 +1069,9 @@ function render() {
   } else if (state.page === "bind") {
     app.innerHTML = renderBind();
     bindBind();
+  } else if (state.page === "set_password") {
+    app.innerHTML = renderSetPassword();
+    bindSetPassword();
   } else if (state.page === "me") {
     app.innerHTML = renderMe();
     bindMe();
@@ -1053,11 +1098,15 @@ async function bootstrapAuth() {
   try {
     const me = await apiFetch("/api/auth/me");
     state.isAdmin = !!me.is_admin;
-    state.page = me.must_bind_nickname ? "bind" : "feed";
+    if (!me.has_password) {
+      state.page = "set_password";
+    } else {
+      state.page = me.must_bind_nickname ? "bind" : "feed";
+    }
   } catch (e) {
     state.token = "";
     state.isAdmin = false;
-    sessionStorage.removeItem("sdu_token");
+    clearToken();
     state.page = "login";
   } finally {
     state.authChecked = true;
@@ -1067,10 +1116,14 @@ async function bootstrapAuth() {
 }
 
 // ---- LOGIN ----
-let loginStep = "input", loginStudentId = "", loginCode = "", loginCountdown = 0, loginTimer = null;
+let loginStep = "input", loginStudentId = "", loginCode = "", loginPassword = "", loginCountdown = 0, loginTimer = null;
+let loginMethod = "password"; // password | code
+let loginRememberMe = localStorage.getItem("sdu_remember_me") !== "0";
 let loginAgreementAccepted = localStorage.getItem("sdu_agree_terms") === "1";
 let loginAgreementAcceptedOnce = localStorage.getItem("sdu_agree_terms_once") === "1";
 let bindNickname = "";
+let setPwd1 = "";
+let setPwd2 = "";
 
 function showAgreementReadModal(onConfirm) {
   const old = document.getElementById("agreement-modal");
@@ -1167,6 +1220,7 @@ function renderLogin() {
     ? `<div class="email-preview">📧 验证码将发送至 ${loginStudentId}@mail.sdu.edu.cn</div>` : "";
 
   if (loginStep === "input") {
+    const isPwd = loginMethod === "password";
     return `
       <div class="login-page">
         <div class="login-card">
@@ -1175,18 +1229,35 @@ function renderLogin() {
             <div class="login-title">山大树洞</div>
             <div class="login-sub">SDU Hole · 匿名校园社区</div>
           </div>
+          <div class="tab-bar" style="margin-bottom:12px">
+            <button class="tab-btn ${isPwd ? "active" : ""}" id="btn-login-tab-password">账号密码登录</button>
+            <button class="tab-btn ${!isPwd ? "active" : ""}" id="btn-login-tab-code">验证码登录</button>
+          </div>
           <div style="margin-bottom:4px">
             <label class="form-label">学号</label>
             <input class="form-input" id="sid" placeholder="请输入你的学号" value="${loginStudentId}" maxlength="14">
-            ${emailPreview}
-            <div class="form-hint">💡 控制台模式会打印在终端；SMTP 模式会发送到邮箱</div>
+            ${isPwd ? `
+              <label class="form-label" style="margin-top:8px">密码</label>
+              <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="64">
+              <div class="form-hint">💡 首次登录请切换到“验证码登录”，验证后设置密码</div>
+            ` : `
+              ${emailPreview}
+              <div class="form-hint">💡 控制台模式会打印在终端；SMTP 模式会发送到邮箱</div>
+            `}
           </div>
+          <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0 6px;cursor:pointer">
+            <input type="checkbox" id="remember-check" ${loginRememberMe ? "checked" : ""} style="margin-top:2px">
+            <span>记住登录状态（30天内免重复登录）</span>
+          </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
             <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
           </label>
           <div id="login-error"></div>
-          <button class="btn-primary" id="btn-send" ${(loginStudentId.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>
+          ${isPwd
+            ? `<button class="btn-primary" id="btn-password-login" ${(loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
+            : `<button class="btn-primary" id="btn-send" ${(loginStudentId.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>`
+          }
           <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
       </div>`;
@@ -1205,6 +1276,10 @@ function renderLogin() {
           </div>
           <input class="form-input code-input" id="code" placeholder="· · · · · ·" value="${loginCode}" maxlength="6">
           <div class="form-hint">💡 控制台模式看后端终端；SMTP 模式看邮箱收件箱/垃圾箱</div>
+          <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0 6px;cursor:pointer">
+            <input type="checkbox" id="remember-check" ${loginRememberMe ? "checked" : ""} style="margin-top:2px">
+            <span>记住登录状态（30天内免重复登录）</span>
+          </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
             <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
@@ -1223,14 +1298,26 @@ function renderLogin() {
 }
 
 function bindLogin() {
+  const tabPwd = document.getElementById("btn-login-tab-password");
+  const tabCode = document.getElementById("btn-login-tab-code");
+  if (tabPwd) tabPwd.addEventListener("click", () => { loginMethod = "password"; render(); });
+  if (tabCode) tabCode.addEventListener("click", () => { loginMethod = "code"; render(); });
+
   const agree = document.getElementById("agree-check");
+  const remember = document.getElementById("remember-check");
   const applyAgreementState = () => {
     loginAgreementAccepted = !!(agree && agree.checked);
     localStorage.setItem("sdu_agree_terms", loginAgreementAccepted ? "1" : "0");
+    if (remember) {
+      loginRememberMe = !!remember.checked;
+      localStorage.setItem("sdu_remember_me", loginRememberMe ? "1" : "0");
+    }
     const sendBtn = document.getElementById("btn-send");
     if (sendBtn) sendBtn.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
     const verifyBtn = document.getElementById("btn-verify");
     if (verifyBtn) verifyBtn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
+    const pwdBtn = document.getElementById("btn-password-login");
+    if (pwdBtn) pwdBtn.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
   };
   if (agree) {
     agree.addEventListener("click", (e) => {
@@ -1249,16 +1336,20 @@ function bindLogin() {
     });
   }
   if (agree) agree.addEventListener("change", applyAgreementState);
+  if (remember) remember.addEventListener("change", applyAgreementState);
 
   if (loginStep === "input") {
     const sid = document.getElementById("sid");
-    const btn = document.getElementById("btn-send");
+    const btnSend = document.getElementById("btn-send");
+    const btnPwd = document.getElementById("btn-password-login");
+    const pwd = document.getElementById("pwd");
     sid.focus();
 
     sid.addEventListener("input", () => {
       loginStudentId = sid.value.replace(/\D/g,"");
       sid.value = loginStudentId;
-      btn.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
+      if (btnSend) btnSend.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
+      if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
       // update email preview
       const parent = sid.parentElement;
       let ep = parent.querySelector(".email-preview");
@@ -1267,9 +1358,23 @@ function bindLogin() {
         ep.textContent = "📧 验证码将发送至 " + loginStudentId + "@mail.sdu.edu.cn";
       } else if (ep) { ep.remove(); }
     });
-    sid.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
+    sid.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      if (loginMethod === "password" && btnPwd) btnPwd.click();
+      if (loginMethod === "code" && btnSend) btnSend.click();
+    });
+
+    if (pwd) {
+      pwd.addEventListener("input", () => {
+        loginPassword = pwd.value || "";
+        if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
+      });
+      pwd.addEventListener("keydown", e => { if(e.key==="Enter" && btnPwd) btnPwd.click(); });
+    }
+
     applyAgreementState();
-    btn.addEventListener("click", sendCode);
+    if (btnSend) btnSend.addEventListener("click", sendCode);
+    if (btnPwd) btnPwd.addEventListener("click", passwordLogin);
   } else {
     const code = document.getElementById("code");
     const btn = document.getElementById("btn-verify");
@@ -1326,21 +1431,121 @@ async function verifyCode() {
   btn.disabled = true; btn.textContent = "验证中...";
   errEl.innerHTML = "";
   try {
-    const data = await apiFetch("/api/auth/verify", { method:"POST", body:{student_id:loginStudentId, code:loginCode} });
+    const data = await apiFetch("/api/auth/verify", {
+      method:"POST",
+      body:{student_id:loginStudentId, code:loginCode, remember_me: loginRememberMe}
+    });
     state.token = data.access_token;
     state.isAdmin = !!data.is_admin;
     state.posts = [];
     state.announcements = [];
     state.notifications = [];
     state.feedDirty = true;
-    sessionStorage.setItem("sdu_token", state.token);
+    saveToken(state.token, loginRememberMe);
     state.authChecked = true;
-    state.page = data.must_bind_nickname ? "bind" : "feed";
+    if (data.must_set_password) {
+      state.page = "set_password";
+    } else {
+      state.page = data.must_bind_nickname ? "bind" : "feed";
+    }
     loginStep = "input"; loginCode = "";
     render();
   } catch(e) {
     errEl.innerHTML = `<div class="form-error">${formatAuthErrorMessage(e.message)}</div>`;
     btn.disabled = false; btn.textContent = "验证并登录";
+  }
+}
+
+async function passwordLogin() {
+  if (!loginAgreementAccepted) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
+    return;
+  }
+  const errEl = document.getElementById("login-error");
+  const btn = document.getElementById("btn-password-login");
+  if (btn) { btn.disabled = true; btn.textContent = "登录中..."; }
+  if (errEl) errEl.innerHTML = "";
+  try {
+    const data = await apiFetch("/api/auth/password-login", {
+      method: "POST",
+      body: { student_id: loginStudentId, password: loginPassword, remember_me: loginRememberMe }
+    });
+    state.token = data.access_token;
+    state.isAdmin = !!data.is_admin;
+    state.posts = [];
+    state.announcements = [];
+    state.notifications = [];
+    state.feedDirty = true;
+    saveToken(state.token, loginRememberMe);
+    state.authChecked = true;
+    state.page = data.must_bind_nickname ? "bind" : "feed";
+    loginPassword = "";
+    render();
+  } catch (e) {
+    if (errEl) errEl.innerHTML = `<div class="form-error">${formatAuthErrorMessage(e.message)}</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = "账号密码登录"; }
+  }
+}
+
+function renderSetPassword() {
+  return `
+    <div class="login-page">
+      <div class="login-card">
+        <div class="login-logo">
+          <div class="logo-mark"><span class="brand-glyph">山</span></div>
+          <div class="login-title">设置登录密码</div>
+          <div class="login-sub">首次登录成功，请设置密码（下次可直接账号密码登录）</div>
+        </div>
+        <label class="form-label">新密码</label>
+        <input class="form-input" id="set-pwd-1" type="password" maxlength="64" placeholder="请输入 6-64 位密码" value="${escapeAttr(setPwd1)}">
+        <label class="form-label" style="margin-top:8px">确认密码</label>
+        <input class="form-input" id="set-pwd-2" type="password" maxlength="64" placeholder="请再次输入密码" value="${escapeAttr(setPwd2)}">
+        <div class="form-hint">💡 建议使用字母+数字组合，方便记忆且更安全</div>
+        <div id="set-pwd-error"></div>
+        <button class="btn-primary" id="btn-set-pwd" ${(setPwd1.length < 6 || setPwd2.length < 6) ? "disabled" : ""}>保存密码并进入树洞</button>
+      </div>
+    </div>`;
+}
+
+function bindSetPassword() {
+  const p1 = document.getElementById("set-pwd-1");
+  const p2 = document.getElementById("set-pwd-2");
+  const btn = document.getElementById("btn-set-pwd");
+  if (!p1 || !p2 || !btn) return;
+  const sync = () => {
+    setPwd1 = p1.value || "";
+    setPwd2 = p2.value || "";
+    btn.disabled = setPwd1.length < 6 || setPwd2.length < 6;
+  };
+  p1.addEventListener("input", sync);
+  p2.addEventListener("input", sync);
+  p2.addEventListener("keydown", e => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
+  btn.addEventListener("click", submitSetPassword);
+}
+
+async function submitSetPassword() {
+  const errEl = document.getElementById("set-pwd-error");
+  const btn = document.getElementById("btn-set-pwd");
+  if (!btn) return;
+  errEl.innerHTML = "";
+  btn.disabled = true;
+  btn.textContent = "保存中...";
+  try {
+    await apiFetch("/api/auth/set-password", {
+      method: "POST",
+      body: { password: setPwd1, confirm_password: setPwd2 }
+    });
+    setPwd1 = "";
+    setPwd2 = "";
+    const me = await apiFetch("/api/auth/me");
+    state.page = me.must_bind_nickname ? "bind" : "feed";
+    state.feedDirty = true;
+    render();
+  } catch (e) {
+    errEl.innerHTML = `<div class="form-error">${formatAuthErrorMessage(e.message)}</div>`;
+    btn.disabled = false;
+    btn.textContent = "保存密码并进入树洞";
   }
 }
 
@@ -1670,7 +1875,7 @@ function bindMe() {
     state.notifications = [];
     state.unreadNoticeCount = 0;
     state.feedDirty = true;
-    sessionStorage.removeItem("sdu_token");
+    clearToken();
     render();
   });
   document.querySelectorAll("[data-me-post]").forEach(el => {
@@ -1724,7 +1929,7 @@ function bindFeed() {
     state.notifications = [];
     state.unreadNoticeCount = 0;
     state.feedDirty = true;
-    sessionStorage.removeItem("sdu_token");
+    clearToken();
     render();
   });
   const refreshBtn = document.getElementById("btn-refresh");
@@ -3269,6 +3474,7 @@ async function showAppealCenter() {
 // ============================================================
 // Boot
 // ============================================================
+applyTouchLayoutClass();
 render();
 initLegalFab();
 </script>

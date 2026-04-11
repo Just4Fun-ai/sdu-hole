@@ -9,12 +9,25 @@ class VerifyRequest(BaseModel):
     student_id: str
     code: str
     nickname: str | None = None
+    remember_me: bool = False
+
+
+class PasswordLoginRequest(BaseModel):
+    student_id: str
+    password: str
+    remember_me: bool = True
+
+
+class SetPasswordRequest(BaseModel):
+    password: str
+    confirm_password: str
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     must_bind_nickname: bool = False
+    must_set_password: bool = False
     nickname: str | None = None
     is_admin: bool = False
 
@@ -30,6 +43,7 @@ class BindNicknameRequest(BaseModel):
 class UserProfileResponse(BaseModel):
     nickname: str | None = None
     must_bind_nickname: bool
+    has_password: bool = False
     is_admin: bool = False
 
 

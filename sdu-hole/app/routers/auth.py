@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 import random
 import time
+from datetime import timedelta
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,8 @@ from app.models.moderation_log import ModerationLog
 from app.schemas.auth import (
     SendCodeRequest,
     VerifyRequest,
+    PasswordLoginRequest,
+    SetPasswordRequest,
     TokenResponse,
     RandomNicknameResponse,
     BindNicknameRequest,
@@ -19,7 +22,13 @@ from app.schemas.auth import (
     AppealCreateRequest,
 )
 from app.services.email import create_and_send_code, verify_code
-from app.utils.security import hash_student_id, create_access_token, get_current_user
+from app.utils.security import (
+    hash_student_id,
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.utils.nickname import validate_nickname, generate_random_nickname
 from app.services.filter import check_content
 from app.services.moderation import log_moderation_hit
@@ -33,6 +42,8 @@ _send_ip_hits: dict[str, list[float]] = {}
 _send_sid_hits: dict[str, list[float]] = {}
 _verify_fail_hits: dict[str, list[float]] = {}
 _verify_block_until: dict[str, float] = {}
+_password_fail_hits: dict[str, list[float]] = {}
+_password_block_until: dict[str, float] = {}
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -165,34 +176,108 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.student_id_hash == sid_hash))
     user = result.scalar_one_or_none()
     must_bind_nickname = False
+    must_set_password = False
 
     if user is None:
         user = User(
             student_id_hash=sid_hash,
             email=email,
             nickname=None,
+            password_hash=None,
             is_admin=is_admin_sid,
         )
         db.add(user)
         await db.flush()
         await db.refresh(user)
         must_bind_nickname = True
+        must_set_password = True
         print(f"✅ 新用户注册: user_id={user.id}")
     else:
         # 允许通过配置自动提升管理员
         if is_admin_sid and not user.is_admin:
             user.is_admin = True
         must_bind_nickname = not bool((user.nickname or "").strip())
+        must_set_password = not bool((user.password_hash or "").strip())
         print(f"✅ 用户登录: user_id={user.id}")
 
     # JWT 的 sub 建议使用字符串，避免部分解析器校验失败
-    token = create_access_token(data={"sub": str(user.id)})
+    expires_delta = timedelta(days=30) if req.remember_me else None
+    token = create_access_token(data={"sub": str(user.id)}, expires_delta=expires_delta)
     return TokenResponse(
         access_token=token,
         must_bind_nickname=must_bind_nickname,
+        must_set_password=must_set_password,
         nickname=user.nickname,
         is_admin=bool(user.is_admin),
     )
+
+
+@router.post("/password-login", response_model=TokenResponse, summary="账号密码登录")
+async def password_login(req: PasswordLoginRequest, db: AsyncSession = Depends(get_db)):
+    sid = req.student_id.strip()
+    now = time.time()
+    if not sid.isdigit() or len(sid) < 6 or len(sid) > 14:
+        raise HTTPException(status_code=400, detail="学号格式不正确，请输入6-14位数字学号")
+    if not req.password or len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+
+    sid_hash = hash_student_id(sid)
+    result = await db.execute(select(User).where(User.student_id_hash == sid_hash))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=400, detail="账号不存在，请先使用验证码首次登录")
+
+    lock_key = str(user.id)
+    blocked_until = _password_block_until.get(lock_key, 0)
+    if blocked_until > now:
+        wait_seconds = int(blocked_until - now)
+        raise HTTPException(status_code=429, detail=f"密码错误次数过多，请{wait_seconds}秒后再试")
+
+    if not (user.password_hash and verify_password(req.password, user.password_hash)):
+        fail_hits = _prune_hits(
+            _password_fail_hits,
+            lock_key,
+            settings.VERIFY_FAIL_WINDOW_SECONDS,
+            now,
+        )
+        fail_hits.append(now)
+        _password_fail_hits[lock_key] = fail_hits
+        if len(fail_hits) >= settings.VERIFY_MAX_FAIL_PER_EMAIL_WINDOW:
+            _password_block_until[lock_key] = now + settings.VERIFY_BLOCK_SECONDS
+            raise HTTPException(
+                status_code=429,
+                detail=f"密码错误次数过多，请{settings.VERIFY_BLOCK_SECONDS}秒后再试",
+            )
+        raise HTTPException(status_code=400, detail="账号或密码错误")
+
+    _password_fail_hits.pop(lock_key, None)
+    _password_block_until.pop(lock_key, None)
+
+    expires_delta = timedelta(days=30) if req.remember_me else None
+    token = create_access_token(data={"sub": str(user.id)}, expires_delta=expires_delta)
+    must_bind_nickname = not bool((user.nickname or "").strip())
+    return TokenResponse(
+        access_token=token,
+        must_bind_nickname=must_bind_nickname,
+        must_set_password=False,
+        nickname=user.nickname,
+        is_admin=bool(user.is_admin),
+    )
+
+
+@router.post("/set-password", summary="设置或修改登录密码")
+async def set_password(
+    req: SetPasswordRequest,
+    user: User = Depends(get_current_user),
+):
+    pwd = (req.password or "").strip()
+    cpwd = (req.confirm_password or "").strip()
+    if len(pwd) < 6 or len(pwd) > 64:
+        raise HTTPException(status_code=400, detail="密码长度需为 6-64 位")
+    if pwd != cpwd:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    user.password_hash = hash_password(pwd)
+    return {"message": "密码设置成功"}
 
 
 @router.post("/bind-nickname", summary="绑定匿名昵称")
@@ -235,6 +320,7 @@ async def me(user: User = Depends(get_current_user)):
     return UserProfileResponse(
         nickname=nickname,
         must_bind_nickname=nickname is None,
+        has_password=bool((user.password_hash or "").strip()),
         is_admin=bool(user.is_admin),
     )
 
