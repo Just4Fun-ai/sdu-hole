@@ -1057,6 +1057,16 @@ function validatePasswordPolicyClient(password) {
   return "";
 }
 
+function validateStudentIdClient(sid) {
+  const s = String(sid || "").trim();
+  if (!/^\d+$/.test(s)) return "学号格式错误：仅支持数字";
+  if (s.length !== 9 && s.length !== 12) return "学号格式错误：仅支持 9 位（研究生）或 12 位（本科生）";
+  const year = Number(s.slice(0, 4));
+  const nowYear = new Date().getFullYear();
+  if (!Number.isFinite(year) || year < 2000 || year > nowYear + 1) return "学号格式错误：年份部分不合法";
+  return "";
+}
+
 // ============================================================
 // Render
 // ============================================================
@@ -1225,7 +1235,7 @@ function showAgreementReadModal(onConfirm) {
 }
 
 function renderLogin() {
-  const emailPreview = loginStudentId.length >= 6
+  const emailPreview = !validateStudentIdClient(loginStudentId)
     ? `<div class="email-preview">📧 验证码将发送至 ${loginStudentId}@mail.sdu.edu.cn</div>` : "";
 
   if (loginStep === "input") {
@@ -1244,7 +1254,7 @@ function renderLogin() {
           </div>
           <div style="margin-bottom:4px">
             <label class="form-label">学号</label>
-            <input class="form-input" id="sid" placeholder="请输入你的学号" value="${loginStudentId}" maxlength="14">
+            <input class="form-input" id="sid" placeholder="请输入学号（研究生9位/本科生12位）" value="${loginStudentId}" maxlength="12">
             ${isPwd ? `
               <label class="form-label" style="margin-top:8px">密码</label>
               <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="32">
@@ -1264,8 +1274,8 @@ function renderLogin() {
           </label>
           <div id="login-error"></div>
           ${isPwd
-            ? `<button class="btn-primary" id="btn-password-login" ${(loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
-            : `<button class="btn-primary" id="btn-send" ${(loginStudentId.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>`
+            ? `<button class="btn-primary" id="btn-password-login" ${(!!validateStudentIdClient(loginStudentId) || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
+            : `<button class="btn-primary" id="btn-send" ${(!!validateStudentIdClient(loginStudentId) || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>`
           }
           <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
@@ -1322,11 +1332,11 @@ function bindLogin() {
       localStorage.setItem("sdu_remember_me", loginRememberMe ? "1" : "0");
     }
     const sendBtn = document.getElementById("btn-send");
-    if (sendBtn) sendBtn.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
+    if (sendBtn) sendBtn.disabled = !!validateStudentIdClient(loginStudentId) || !loginAgreementAccepted;
     const verifyBtn = document.getElementById("btn-verify");
     if (verifyBtn) verifyBtn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
     const pwdBtn = document.getElementById("btn-password-login");
-    if (pwdBtn) pwdBtn.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
+    if (pwdBtn) pwdBtn.disabled = !!validateStudentIdClient(loginStudentId) || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
   };
   if (agree) {
     agree.addEventListener("click", (e) => {
@@ -1357,12 +1367,12 @@ function bindLogin() {
     sid.addEventListener("input", () => {
       loginStudentId = sid.value.replace(/\D/g,"");
       sid.value = loginStudentId;
-      if (btnSend) btnSend.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
-      if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
+      if (btnSend) btnSend.disabled = !!validateStudentIdClient(loginStudentId) || !loginAgreementAccepted;
+      if (btnPwd) btnPwd.disabled = !!validateStudentIdClient(loginStudentId) || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
       // update email preview
       const parent = sid.parentElement;
       let ep = parent.querySelector(".email-preview");
-      if (loginStudentId.length >= 6) {
+      if (!validateStudentIdClient(loginStudentId)) {
         if (!ep) { ep = document.createElement("div"); ep.className="email-preview"; parent.insertBefore(ep, parent.querySelector(".form-hint")); }
         ep.textContent = "📧 验证码将发送至 " + loginStudentId + "@mail.sdu.edu.cn";
       } else if (ep) { ep.remove(); }
@@ -1376,7 +1386,7 @@ function bindLogin() {
     if (pwd) {
       pwd.addEventListener("input", () => {
         loginPassword = pwd.value || "";
-        if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
+        if (btnPwd) btnPwd.disabled = !!validateStudentIdClient(loginStudentId) || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
       });
       pwd.addEventListener("keydown", e => { if(e.key==="Enter" && btnPwd) btnPwd.click(); });
     }
@@ -1407,6 +1417,12 @@ async function sendCode() {
     if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
     return;
   }
+  const sidErr = validateStudentIdClient(loginStudentId);
+  if (sidErr) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">${sidErr}</div>`;
+    return;
+  }
   const errEl = document.getElementById("login-error");
   const btn = document.getElementById("btn-send") || document.getElementById("btn-resend");
   if (btn) btn.disabled = true;
@@ -1433,6 +1449,12 @@ async function verifyCode() {
   if (!loginAgreementAccepted) {
     const errEl = document.getElementById("login-error");
     if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
+    return;
+  }
+  const sidErr = validateStudentIdClient(loginStudentId);
+  if (sidErr) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">${sidErr}</div>`;
     return;
   }
   const errEl = document.getElementById("login-error");
@@ -1469,6 +1491,12 @@ async function passwordLogin() {
   if (!loginAgreementAccepted) {
     const errEl = document.getElementById("login-error");
     if (errEl) errEl.innerHTML = `<div class="form-error">请先勾选并同意《用户协议》《隐私政策》</div>`;
+    return;
+  }
+  const sidErr = validateStudentIdClient(loginStudentId);
+  if (sidErr) {
+    const errEl = document.getElementById("login-error");
+    if (errEl) errEl.innerHTML = `<div class="form-error">${sidErr}</div>`;
     return;
   }
   const errEl = document.getElementById("login-error");

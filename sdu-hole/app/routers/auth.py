@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 import random
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,6 +93,22 @@ def _validate_password_policy(password: str):
         raise HTTPException(status_code=400, detail="密码过于简单，请更换更安全的密码")
 
 
+def _validate_student_id_format(sid: str):
+    """
+    学号规则：
+    - 研究生：9 位数字，前 4 位为年份（例 2025xxxxx）
+    - 本科生：12 位数字，前 4 位为年份（例 2021xxxxxxxx）
+    """
+    if not sid.isdigit():
+        raise HTTPException(status_code=400, detail="学号格式错误：仅支持数字")
+    if len(sid) not in (9, 12):
+        raise HTTPException(status_code=400, detail="学号格式错误：仅支持 9 位（研究生）或 12 位（本科生）")
+    year = int(sid[:4])
+    now_year = datetime.now().year
+    if year < 2000 or year > now_year + 1:
+        raise HTTPException(status_code=400, detail="学号格式错误：年份部分不合法")
+
+
 @router.get("/random-nickname", response_model=RandomNicknameResponse, summary="生成随机匿名昵称")
 async def random_nickname(db: AsyncSession = Depends(get_db)):
     for _ in range(30):
@@ -114,11 +130,9 @@ async def send_code(
     开发模式下验证码会打印在控制台。
     """
     sid = req.student_id.strip()
+    _validate_student_id_format(sid)
     now = time.time()
     client_ip = _extract_client_ip(request)
-
-    if not sid.isdigit() or len(sid) < 6 or len(sid) > 14:
-        raise HTTPException(status_code=400, detail="学号格式不正确，请输入6-14位数字学号")
 
     # IP 级限流
     ip_hits = _prune_hits(
@@ -164,6 +178,7 @@ async def send_code(
 async def verify(req: VerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """验证码校验通过后，创建或获取用户，返回 JWT Token"""
     sid = req.student_id.strip()
+    _validate_student_id_format(sid)
     email = f"{sid}{settings.ALLOWED_EMAIL_SUFFIX}"
     now = time.time()
 
@@ -242,9 +257,8 @@ async def verify(req: VerifyRequest, request: Request, db: AsyncSession = Depend
 @router.post("/password-login", response_model=TokenResponse, summary="账号密码登录")
 async def password_login(req: PasswordLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     sid = req.student_id.strip()
+    _validate_student_id_format(sid)
     now = time.time()
-    if not sid.isdigit() or len(sid) < 6 or len(sid) > 14:
-        raise HTTPException(status_code=400, detail="学号格式不正确，请输入6-14位数字学号")
     if not req.password:
         raise HTTPException(status_code=400, detail="请输入密码")
     if len(req.password) < 6 or len(req.password) > 32:
