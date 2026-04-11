@@ -1411,7 +1411,7 @@ function bindLogin() {
       // update email preview
       const parent = sid.parentElement;
       let ep = parent.querySelector(".email-preview");
-      if (!validateStudentIdClient(loginStudentId)) {
+      if (loginMethod === "code" && !validateStudentIdClient(loginStudentId)) {
         if (!ep) { ep = document.createElement("div"); ep.className="email-preview"; parent.insertBefore(ep, parent.querySelector(".form-hint")); }
         ep.textContent = "📧 验证码将发送至 " + loginStudentId + "@mail.sdu.edu.cn";
       } else if (ep) { ep.remove(); }
