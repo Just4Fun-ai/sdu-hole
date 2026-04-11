@@ -1,8 +1,9 @@
 import hashlib
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -43,7 +44,40 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
+def _extract_client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+def _ip_network_fingerprint(ip_str: str) -> str:
+    if not ip_str:
+        return "unknown"
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return "unknown"
+    if ip_obj.version == 4:
+        parts = ip_str.split(".")
+        if len(parts) == 4:
+            return ".".join(parts[:3]) + ".0/24"
+        return "unknown"
+    exploded = ip_obj.exploded.split(":")
+    return ":".join(exploded[:4]) + "::/64"
+
+
+def build_client_fingerprint(request: Request) -> dict:
+    ua = (request.headers.get("user-agent") or "").strip().lower()
+    ua_hash = hashlib.sha256(ua.encode()).hexdigest()[:24]
+    ip_network = _ip_network_fingerprint(_extract_client_ip(request))
+    return {"uah": ua_hash, "ipn": ip_network}
+
+
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -63,7 +97,16 @@ async def get_current_user(
             user_id = int(user_sub)
         except (TypeError, ValueError):
             raise credentials_exception
+        token_uah = payload.get("uah")
+        token_ipn = payload.get("ipn")
     except JWTError:
+        raise credentials_exception
+
+    # 绑定设备/网络：换设备或换网络需重新登录
+    current_fp = build_client_fingerprint(request)
+    if token_uah and token_uah != current_fp["uah"]:
+        raise credentials_exception
+    if token_ipn and token_ipn != current_fp["ipn"]:
         raise credentials_exception
 
     result = await db.execute(select(User).where(User.id == user_id))

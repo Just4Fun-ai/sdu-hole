@@ -606,7 +606,7 @@ function getStoredToken() {
 function saveToken(token, rememberMe) {
   if (rememberMe) {
     localStorage.setItem("sdu_token", token);
-    localStorage.setItem("sdu_token_expire_at", String(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    localStorage.setItem("sdu_token_expire_at", String(Date.now() + 1 * 24 * 60 * 60 * 1000));
     sessionStorage.removeItem("sdu_token");
   } else {
     sessionStorage.setItem("sdu_token", token);
@@ -1247,7 +1247,7 @@ function renderLogin() {
           </div>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0 6px;cursor:pointer">
             <input type="checkbox" id="remember-check" ${loginRememberMe ? "checked" : ""} style="margin-top:2px">
-            <span>记住登录状态（30天内免重复登录）</span>
+            <span>记住登录状态（1天内免重复登录）</span>
           </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
@@ -1278,7 +1278,7 @@ function renderLogin() {
           <div class="form-hint">💡 控制台模式看后端终端；SMTP 模式看邮箱收件箱/垃圾箱</div>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0 6px;cursor:pointer">
             <input type="checkbox" id="remember-check" ${loginRememberMe ? "checked" : ""} style="margin-top:2px">
-            <span>记住登录状态（30天内免重复登录）</span>
+            <span>记住登录状态（1天内免重复登录）</span>
           </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">

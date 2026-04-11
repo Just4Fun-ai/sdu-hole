@@ -28,6 +28,7 @@ from app.utils.security import (
     get_current_user,
     hash_password,
     verify_password,
+    build_client_fingerprint,
 )
 from app.utils.nickname import validate_nickname, generate_random_nickname
 from app.services.filter import check_content
@@ -135,7 +136,7 @@ async def send_code(
 
 
 @router.post("/verify", response_model=TokenResponse, summary="验证码登录")
-async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
+async def verify(req: VerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """验证码校验通过后，创建或获取用户，返回 JWT Token"""
     sid = req.student_id.strip()
     email = f"{sid}{settings.ALLOWED_EMAIL_SUFFIX}"
@@ -201,8 +202,9 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
         print(f"✅ 用户登录: user_id={user.id}")
 
     # JWT 的 sub 建议使用字符串，避免部分解析器校验失败
-    expires_delta = timedelta(days=30) if req.remember_me else None
-    token = create_access_token(data={"sub": str(user.id)}, expires_delta=expires_delta)
+    expires_delta = timedelta(days=1) if req.remember_me else None
+    fp = build_client_fingerprint(request)
+    token = create_access_token(data={"sub": str(user.id), "uah": fp["uah"], "ipn": fp["ipn"]}, expires_delta=expires_delta)
     return TokenResponse(
         access_token=token,
         must_bind_nickname=must_bind_nickname,
@@ -213,7 +215,7 @@ async def verify(req: VerifyRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/password-login", response_model=TokenResponse, summary="账号密码登录")
-async def password_login(req: PasswordLoginRequest, db: AsyncSession = Depends(get_db)):
+async def password_login(req: PasswordLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     sid = req.student_id.strip()
     now = time.time()
     if not sid.isdigit() or len(sid) < 6 or len(sid) > 14:
@@ -253,8 +255,9 @@ async def password_login(req: PasswordLoginRequest, db: AsyncSession = Depends(g
     _password_fail_hits.pop(lock_key, None)
     _password_block_until.pop(lock_key, None)
 
-    expires_delta = timedelta(days=30) if req.remember_me else None
-    token = create_access_token(data={"sub": str(user.id)}, expires_delta=expires_delta)
+    expires_delta = timedelta(days=1) if req.remember_me else None
+    fp = build_client_fingerprint(request)
+    token = create_access_token(data={"sub": str(user.id), "uah": fp["uah"], "ipn": fp["ipn"]}, expires_delta=expires_delta)
     must_bind_nickname = not bool((user.nickname or "").strip())
     return TokenResponse(
         access_token=token,
