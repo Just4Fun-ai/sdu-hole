@@ -363,6 +363,60 @@
   .section-header-row { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
   .detail-content { font-size:16px; line-height:1.9; }
   .section-title { font-size:14px; font-weight:600; color:var(--text2); padding:8px 0 12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
+  .me-hero {
+    background:linear-gradient(165deg, #fff, #fcf5f6 65%, #f7eded 100%);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:16px;
+    margin-bottom:12px;
+  }
+  .me-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .me-user { display:flex; align-items:center; gap:12px; min-width:0; }
+  .me-avatar {
+    width:52px; height:52px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:22px; font-weight:700; color:#fff;
+    background:linear-gradient(145deg,#be2a38,var(--accent));
+    box-shadow:0 4px 14px rgba(166,27,41,.28);
+    flex-shrink:0;
+  }
+  .me-name { font-size:20px; font-weight:700; color:#2f2b28; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px; }
+  .me-sub { font-size:12px; color:var(--text3); margin-top:3px; }
+  .me-badge {
+    font-size:11px; font-weight:700; color:var(--accent);
+    border:1px solid var(--accent-border); background:var(--accent-soft);
+    padding:2px 8px; border-radius:999px;
+  }
+  .me-stats {
+    display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:8px; margin-top:12px;
+  }
+  .me-stat {
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    padding:10px 8px; text-align:center;
+  }
+  .me-stat .num { font-size:18px; font-weight:700; color:#2f2b28; line-height:1; }
+  .me-stat .label { font-size:11px; color:var(--text3); margin-top:4px; }
+  .me-quick {
+    display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:8px; margin-top:10px;
+  }
+  .me-q-btn {
+    border:1px solid var(--border);
+    background:#fff;
+    border-radius:12px;
+    padding:8px 6px;
+    text-align:center;
+    font-size:12px;
+    color:var(--text2);
+    cursor:pointer;
+  }
+  .me-q-btn strong { display:block; color:#2f2b28; font-size:13px; margin-top:2px; }
+  .me-q-btn:hover { border-color:var(--accent-border); color:var(--accent); }
+  @media (max-width:760px){
+    .me-stats,.me-quick { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .me-name { max-width:150px; font-size:18px; }
+  }
   .comment-item { padding:14px 0; border-bottom:1px solid var(--border-light); animation:fadeIn .3s ease-out; }
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
@@ -465,6 +519,7 @@ let state = {
   meAppeals: [],
   meTab: "posts", // posts | favorites | messages | appeals
   meLoading: false,
+  meProfile: { nickname: "匿名同学", is_admin: false },
   selectedPost: null,
   comments: [],
   activeTag: "全部",
@@ -1369,6 +1424,11 @@ function meTabTitle() {
   return "我的帖子";
 }
 
+function meDisplayName() {
+  const raw = String(state.meProfile?.nickname || "").trim();
+  return raw || "匿名同学";
+}
+
 function renderMe() {
   const tabs = [
     { key: "posts", label: "帖子" },
@@ -1389,6 +1449,8 @@ function renderMe() {
   } else {
     contentHtml = mePostListHTML(state.mePosts, "你还没有发布帖子");
   }
+  const name = meDisplayName();
+  const pendingAppeals = (state.meAppeals || []).filter(a => String(a.status || "").toLowerCase() === "pending").length;
   return `
     <div class="container">
       <div class="feed-header">
@@ -1403,8 +1465,32 @@ function renderMe() {
         </div>
       </div>
 
+      <div class="me-hero">
+        <div class="me-head">
+          <div class="me-user">
+            <div class="me-avatar">${escapeHTML(avatarText(name))}</div>
+            <div>
+              <div class="me-name">${escapeHTML(name)}</div>
+              <div class="me-sub">校园匿名社区 · 文明交流</div>
+            </div>
+          </div>
+          ${state.isAdmin ? `<span class="me-badge">管理员</span>` : ""}
+        </div>
+        <div class="me-stats">
+          <div class="me-stat"><div class="num">${state.mePosts.length}</div><div class="label">我的帖子</div></div>
+          <div class="me-stat"><div class="num">${state.meFavorites.length}</div><div class="label">我的收藏</div></div>
+          <div class="me-stat"><div class="num">${state.unreadNoticeCount}</div><div class="label">未读消息</div></div>
+          <div class="me-stat"><div class="num">${pendingAppeals}</div><div class="label">待处理申诉</div></div>
+        </div>
+        <div class="me-quick">
+          <button class="me-q-btn" id="btn-me-tab-posts">📝<strong>帖子</strong></button>
+          <button class="me-q-btn" id="btn-me-tab-favorites">⭐<strong>收藏</strong></button>
+          <button class="me-q-btn" id="btn-me-tab-messages">🔔<strong>消息</strong></button>
+          <button class="me-q-btn" id="btn-me-tab-appeals">🧾<strong>申诉</strong></button>
+        </div>
+      </div>
+
       <div class="detail-card" style="margin-bottom:12px">
-        <div style="font-size:13px;color:var(--text2);margin-bottom:10px">个人中心</div>
         <div class="tool-row">
           <button class="btn-outline" id="btn-me-block">屏蔽设置</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-me-admin">管理面板</button>` : ""}
@@ -1428,14 +1514,21 @@ function renderMe() {
 async function loadMeData() {
   try {
     await refreshNotifications();
-    const [mine, favs, appeals] = await Promise.all([
+    const [mine, favs, appeals, me] = await Promise.all([
       apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
       apiFetch("/api/posts/?favorited=true&order=new&page=1&size=20"),
       apiFetch("/api/auth/appeals?page=1&size=20").catch(() => []),
+      apiFetch("/api/auth/me").catch(() => null),
     ]);
     state.mePosts = mine || [];
     state.meFavorites = favs || [];
     state.meAppeals = appeals || [];
+    if (me) {
+      state.meProfile = {
+        nickname: me.nickname || "匿名同学",
+        is_admin: !!me.is_admin,
+      };
+    }
   } catch (e) {
     showToast(e.message || "加载我的数据失败");
   } finally {
@@ -1516,6 +1609,22 @@ function bindMe() {
       state.meTab = tab;
       render();
     });
+  });
+  document.getElementById("btn-me-tab-posts")?.addEventListener("click", () => {
+    state.meTab = "posts";
+    render();
+  });
+  document.getElementById("btn-me-tab-favorites")?.addEventListener("click", () => {
+    state.meTab = "favorites";
+    render();
+  });
+  document.getElementById("btn-me-tab-messages")?.addEventListener("click", () => {
+    state.meTab = "messages";
+    render();
+  });
+  document.getElementById("btn-me-tab-appeals")?.addEventListener("click", () => {
+    state.meTab = "appeals";
+    render();
   });
 }
 
