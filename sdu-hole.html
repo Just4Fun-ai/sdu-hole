@@ -2454,9 +2454,9 @@ function renderPostList() {
       ${renderPostImagesPreview(p, false)}
       ${postContentHTML(p)}
       <div class="post-actions">
-        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐ 已收藏":"☆ 收藏"}</button>
-        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} 点赞 <span class="like-count">${p.like_count}</span></button>
-        <button class="action-btn" data-goto="${p.id}">💬 评论 ${p.comment_count}</button>
+        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐":"☆"}</button>
+        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
+        <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
         <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
         ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">删除</button>` : ""}
       </div>
