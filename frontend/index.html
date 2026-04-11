@@ -1922,7 +1922,7 @@ function mePostListHTML(rows, emptyText) {
 function meNotificationListHTML(rows) {
   if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">暂无消息</div>`;
   return rows.map(n => `
-    <div class="comment-item" data-me-notice-post="${n.post_id}">
+    <div class="comment-item" ${n.post_id ? `data-me-notice-post="${n.post_id}"` : ""}>
       <div style="font-size:14px">${escapeHTML(n.text || "")}</div>
       <div style="font-size:12px;color:var(--text3);margin-top:6px">${timeAgo(n.created_at)}</div>
     </div>
@@ -2579,7 +2579,10 @@ async function refreshNotifications() {
   if (now - (state.lastNoticeRefreshAt || 0) < 30000) return;
   state.lastNoticeRefreshAt = now;
   try {
-    const mine = await apiFetch("/api/posts/?mine=true&order=new&page=1&size=20");
+    const [mine, adminEvents] = await Promise.all([
+      apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
+      apiFetch("/api/auth/moderation-events?page=1&size=20").catch(() => []),
+    ]);
     const items = [];
     for (const p of mine) {
       if (p.comment_count <= 0) continue;
@@ -2597,6 +2600,16 @@ async function refreshNotifications() {
           }
         });
       } catch (_) {}
+    }
+    for (const e of (adminEvents || [])) {
+      if (String(e.scene || "") !== "admin_report_result") continue;
+      items.push({
+        id: `report-${e.id}`,
+        type: "report_result",
+        created_at: e.created_at,
+        post_id: null,
+        text: `📩 举报处理反馈：${e.reason || "管理员已处理你的举报"}`,
+      });
     }
     items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     state.notifications = items.slice(0, 30);
@@ -3428,9 +3441,12 @@ async function showAdminPanel() {
             <div style="font-size:13px;color:var(--text2)">#${r.id} ${r.target_type}:${r.target_id} · 举报人:${r.report_user_id}</div>
             <div style="font-size:14px;margin:6px 0">${escapeHTML(r.reason || "（无理由）")}</div>
             <div class="post-actions">
-              ${r.target_type === "post" ? `<button class="action-btn warn" data-admin-del-post="${r.target_id}">🗑 删帖</button>` : ""}
-              ${r.target_type === "post" ? `<button class="action-btn warn" data-admin-ban-post-author="${r.target_id}">⛔ 禁言作者</button>` : ""}
-              ${r.target_type === "comment" ? `<button class="action-btn warn" data-admin-del-comment="${r.target_id}">🗑 删评论</button>` : ""}
+              <button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="warn_author">⚠️ 警告作者</button>
+              <button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="ignore">✅ 结案（不处罚）</button>
+              ${r.target_type === "post" ? `<button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="delete_post">🗑 删帖</button>` : ""}
+              ${r.target_type === "post" ? `<button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="ban_author">⛔ 禁言作者</button>` : ""}
+              ${r.target_type === "comment" ? `<button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="delete_comment">🗑 删评论</button>` : ""}
+              ${r.target_type === "comment" ? `<button class="action-btn warn" data-report-resolve="${r.id}" data-report-action="ban_author">⛔ 禁言作者</button>` : ""}
             </div>
           </div>
         `).join("");
@@ -3477,6 +3493,57 @@ async function showAdminPanel() {
 }
 
 function bindAdminActions() {
+  document.querySelectorAll("[data-report-resolve]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const reportId = parseInt(btn.dataset.reportResolve || "", 10);
+      const action = String(btn.dataset.reportAction || "").trim();
+      if (!Number.isFinite(reportId) || !action) return;
+
+      const actionLabelMap = {
+        warn_author: "警告作者",
+        ignore: "结案（不处罚）",
+        delete_post: "删帖",
+        delete_comment: "删评论",
+        ban_author: "禁言作者",
+      };
+      const actionLabel = actionLabelMap[action] || action;
+      if (!confirm(`确认执行：${actionLabel}？`)) return;
+
+      const reasonDefaultMap = {
+        warn_author: "存在不当言论，已发出警告",
+        ignore: "核查后暂未发现违规",
+        delete_post: "内容违规，已删除帖子",
+        delete_comment: "内容违规，已删除评论",
+        ban_author: "多次违规，已禁言账号",
+      };
+      const reason = (prompt("处理备注（管理员留档，可留空）", reasonDefaultMap[action] || "") || "").trim();
+
+      const feedbackDefaultMap = {
+        warn_author: "感谢举报，已警告发布者并记录在案。",
+        ignore: "感谢举报，已核查，暂未达到处罚标准，我们会持续关注。",
+        delete_post: "感谢举报，已核查并删除违规帖子。",
+        delete_comment: "感谢举报，已核查并删除违规评论。",
+        ban_author: "感谢举报，已核查并禁言该账号。",
+      };
+      const feedback = (prompt("给举报者的处理反馈（必填）", feedbackDefaultMap[action] || "") || "").trim();
+      if (!feedback) {
+        alert("反馈内容不能为空");
+        return;
+      }
+
+      try {
+        const data = await apiFetch(`/api/admin/reports/${reportId}/resolve`, {
+          method: "POST",
+          body: { action, reason, feedback },
+        });
+        showToast(data.message || "已处理并反馈举报人");
+        btn.closest(".comment-item")?.remove();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+
   document.querySelectorAll("[data-admin-del-post]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.adminDelPost);

@@ -23,6 +23,12 @@ class AdminActionPayload(BaseModel):
     reason: str = ""
 
 
+class ReportResolvePayload(BaseModel):
+    action: str = "ignore"  # ignore | warn_author | delete_post | delete_comment | ban_author
+    reason: str = ""        # 管理员内部备注
+    feedback: str = ""      # 给举报者的处理反馈
+
+
 @router.get("/reports", summary="查看举报列表（管理员）")
 async def list_reports(
     page: int = Query(1, ge=1),
@@ -51,6 +57,157 @@ async def list_reports(
         }
         for r in reports
     ]
+
+
+@router.post("/reports/{report_id}/resolve", summary="处理举报（管理员）")
+async def resolve_report(
+    report_id: int,
+    payload: ReportResolvePayload,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_admin(user)
+    action = (payload.action or "ignore").strip().lower()
+    reason = (payload.reason or "").strip()
+    feedback = (payload.feedback or "").strip()
+
+    if action not in {"ignore", "warn_author", "delete_post", "delete_comment", "ban_author"}:
+        raise HTTPException(status_code=400, detail="不支持的处理动作")
+    if not feedback:
+        raise HTTPException(status_code=400, detail="请填写给举报者的反馈")
+
+    report_result = await db.execute(select(Report).where(Report.id == report_id))
+    report = report_result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="举报记录不存在")
+
+    target_user_id: int | None = None
+    target_desc = f"{report.target_type}:{report.target_id}"
+    action_label = "已处理"
+
+    if report.target_type == "post":
+        post_result = await db.execute(select(Post).where(Post.id == report.target_id))
+        post = post_result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="被举报帖子不存在")
+        target_user_id = post.user_id
+
+        if action == "warn_author":
+            action_label = "已警告作者"
+            await log_moderation_hit(
+                db,
+                user_id=target_user_id,
+                scene="admin_warn_user",
+                content=f"post:{post.id}",
+                reason=reason or "管理员已警告，请注意文明发言",
+            )
+        elif action == "delete_post":
+            action_label = "已删除帖子"
+            post.is_deleted = True
+            img_result = await db.execute(select(UploadedImage).where(UploadedImage.post_id == post.id))
+            for img in img_result.scalars().all():
+                try:
+                    if img.file_path and os.path.exists(img.file_path):
+                        os.remove(img.file_path)
+                except Exception:
+                    pass
+                await db.delete(img)
+            await log_moderation_hit(
+                db,
+                user_id=target_user_id,
+                scene="admin_delete_post",
+                content=f"post:{post.id}",
+                reason=reason or "管理员删除帖子",
+            )
+        elif action == "ban_author":
+            user_result = await db.execute(select(User).where(User.id == post.user_id))
+            target = user_result.scalar_one_or_none()
+            if not target:
+                raise HTTPException(status_code=404, detail="作者不存在")
+            if target.is_admin:
+                raise HTTPException(status_code=400, detail="管理员账号不可禁言")
+            target.is_banned = True
+            action_label = "已禁言作者"
+            await log_moderation_hit(
+                db,
+                user_id=target.id,
+                scene="admin_ban_user",
+                content=f"user:{target.id} by_post:{post.id}",
+                reason=reason or "管理员禁言账号",
+            )
+        elif action == "delete_comment":
+            raise HTTPException(status_code=400, detail="帖子举报不支持“删评论”动作")
+        else:
+            action_label = "已处理（未处罚）"
+
+    elif report.target_type == "comment":
+        comment_result = await db.execute(select(Comment).where(Comment.id == report.target_id))
+        comment = comment_result.scalar_one_or_none()
+        if not comment:
+            raise HTTPException(status_code=404, detail="被举报评论不存在")
+        target_user_id = comment.user_id
+
+        if action == "warn_author":
+            action_label = "已警告作者"
+            await log_moderation_hit(
+                db,
+                user_id=target_user_id,
+                scene="admin_warn_user",
+                content=f"comment:{comment.id}",
+                reason=reason or "管理员已警告，请注意文明发言",
+            )
+        elif action == "delete_comment":
+            action_label = "已删除评论"
+            comment.is_deleted = True
+            await log_moderation_hit(
+                db,
+                user_id=target_user_id,
+                scene="admin_delete_comment",
+                content=f"comment:{comment.id}",
+                reason=reason or "管理员删除评论",
+            )
+        elif action == "ban_author":
+            user_result = await db.execute(select(User).where(User.id == comment.user_id))
+            target = user_result.scalar_one_or_none()
+            if not target:
+                raise HTTPException(status_code=404, detail="作者不存在")
+            if target.is_admin:
+                raise HTTPException(status_code=400, detail="管理员账号不可禁言")
+            target.is_banned = True
+            action_label = "已禁言作者"
+            await log_moderation_hit(
+                db,
+                user_id=target.id,
+                scene="admin_ban_user",
+                content=f"user:{target.id} by_comment:{comment.id}",
+                reason=reason or "管理员禁言账号",
+            )
+        elif action == "delete_post":
+            raise HTTPException(status_code=400, detail="评论举报不支持“删帖”动作")
+        else:
+            action_label = "已处理（未处罚）"
+    else:
+        raise HTTPException(status_code=400, detail="不支持的举报对象类型")
+
+    reporter_feedback = f"{action_label}：{feedback}"
+    await log_moderation_hit(
+        db,
+        user_id=report.user_id,
+        scene="admin_report_result",
+        content=f"report:{report.id} target:{target_desc}",
+        reason=reporter_feedback,
+    )
+
+    await db.delete(report)
+    return {
+        "message": "举报已处理并反馈举报人",
+        "id": report.id,
+        "action": action,
+        "action_label": action_label,
+        "target_type": report.target_type,
+        "target_id": report.target_id,
+        "target_user_id": target_user_id,
+    }
 
 
 @router.get("/moderation-hits", summary="查看敏感词命中记录（管理员）")
