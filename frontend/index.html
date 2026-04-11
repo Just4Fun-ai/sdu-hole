@@ -582,9 +582,9 @@
 <div id="app"></div>
 <div class="legal-fab" id="legal-fab">
   <span>协议</span>
-  <a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">用户协议</a>
+  <a href="./user-agreement.html" data-open-legal="ua">用户协议</a>
   <span>|</span>
-  <a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">隐私政策</a>
+  <a href="./privacy-policy.html" data-open-legal="pp">隐私政策</a>
   <button class="legal-fab-close" id="legal-fab-close" title="关闭">✕</button>
 </div>
 
@@ -1234,6 +1234,40 @@ function showAgreementReadModal(onConfirm) {
   });
 }
 
+function showLegalDocModal(kind = "ua") {
+  const old = document.getElementById("legal-doc-modal");
+  if (old) old.remove();
+  const isPrivacy = kind === "pp";
+  const title = isPrivacy ? "隐私政策" : "用户协议";
+  const src = isPrivacy ? "./privacy-policy.html" : "./user-agreement.html";
+  const wrap = document.createElement("div");
+  wrap.id = "legal-doc-modal";
+  wrap.className = "modal-overlay";
+  wrap.innerHTML = `
+    <div class="modal-content agreement-modal-content" id="legal-doc-body">
+      <div class="modal-title"><span>${title}</span><button class="modal-close" id="legal-doc-close">✕</button></div>
+      <iframe class="agreement-frame" src="${src}" title="${title}"></iframe>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  document.getElementById("legal-doc-close")?.addEventListener("click", close);
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  document.getElementById("legal-doc-body")?.addEventListener("click", (e) => e.stopPropagation());
+}
+
+let legalDocDelegated = false;
+function initLegalDocDelegation() {
+  if (legalDocDelegated) return;
+  legalDocDelegated = true;
+  document.addEventListener("click", (e) => {
+    const el = e.target instanceof Element ? e.target.closest("[data-open-legal]") : null;
+    if (!el) return;
+    e.preventDefault();
+    const kind = el.getAttribute("data-open-legal") || "ua";
+    showLegalDocModal(kind);
+  });
+}
+
 function renderLogin() {
   const emailPreview = !validateStudentIdClient(loginStudentId)
     ? `<div class="email-preview">📧 验证码将发送至 ${loginStudentId}@mail.sdu.edu.cn</div>` : "";
@@ -1270,7 +1304,7 @@ function renderLogin() {
           </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
-            <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
+            <span>我已阅读并同意<a href="./user-agreement.html" data-open-legal="ua">《用户协议》</a>和<a href="./privacy-policy.html" data-open-legal="pp">《隐私政策》</a></span>
           </label>
           <div id="login-error"></div>
           ${isPwd
@@ -1301,7 +1335,7 @@ function renderLogin() {
           </label>
           <label class="form-hint" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0 6px;cursor:pointer">
             <input type="checkbox" id="agree-check" ${loginAgreementAccepted ? "checked" : ""} style="margin-top:2px">
-            <span>我已阅读并同意<a href="./user-agreement.html" target="_blank" rel="noopener noreferrer">《用户协议》</a>和<a href="./privacy-policy.html" target="_blank" rel="noopener noreferrer">《隐私政策》</a></span>
+            <span>我已阅读并同意<a href="./user-agreement.html" data-open-legal="ua">《用户协议》</a>和<a href="./privacy-policy.html" data-open-legal="pp">《隐私政策》</a></span>
           </label>
           <div id="login-error"></div>
           <button class="btn-primary" id="btn-verify" ${(loginCode.length !== 6 || !loginAgreementAccepted) ? "disabled" : ""}>验证并登录</button>
@@ -3530,6 +3564,7 @@ async function showAppealCenter() {
 // Boot
 // ============================================================
 applyTouchLayoutClass();
+initLegalDocDelegation();
 render();
 initLegalFab();
 </script>
