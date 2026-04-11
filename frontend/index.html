@@ -1254,7 +1254,7 @@ function renderLogin() {
           </div>
           <div style="margin-bottom:4px">
             <label class="form-label">学号</label>
-            <input class="form-input" id="sid" placeholder="请输入学号（研究生9位/本科生12位）" value="${loginStudentId}" maxlength="12">
+            <input class="form-input" id="sid" placeholder="请输入学号" value="${loginStudentId}" maxlength="12">
             ${isPwd ? `
               <label class="form-label" style="margin-top:8px">密码</label>
               <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="32">
