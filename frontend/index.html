@@ -489,14 +489,20 @@
   }
   .mobile-nav {
     position:fixed;
-    left:0; right:0; bottom:0;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(640px, calc(100vw - 20px));
+    bottom:0;
     z-index:80;
     background:rgba(255,255,255,.96);
-    border-top:1px solid var(--border);
+    border:1px solid var(--border);
+    border-bottom:none;
+    border-radius:14px 14px 0 0;
+    box-shadow:0 -4px 18px rgba(43,32,24,.08);
     backdrop-filter:blur(8px);
     display:block;
   }
-  body.has-bottom-nav .container { padding-bottom:88px; }
+  body.has-bottom-nav .container { padding-bottom:96px; }
   body.has-bottom-nav .fab { display:none !important; }
   body.has-bottom-nav .legal-fab { bottom:82px; }
   body.has-bottom-nav .comment-bar { bottom:66px; }
@@ -506,7 +512,7 @@
   body.touch-device .comment-bar { bottom:66px; }
   body.touch-device .container { padding-bottom:84px; }
   .mobile-nav-wrap {
-    max-width:640px;
+    max-width:none;
     margin:0 auto;
     display:grid;
     grid-template-columns:1fr 1fr 1fr;
@@ -521,7 +527,7 @@
   }
   .mobile-nav-btn.active { color:var(--accent); background:var(--accent-soft); }
   .mobile-nav-btn.center {
-    width:48px; height:48px; margin:0 auto;
+    width:46px; height:46px; margin:0 auto;
     border-radius:15px; font-weight:700; color:#fff;
     background:var(--accent); font-size:22px;
     box-shadow:0 6px 16px rgba(166,27,41,.3);
@@ -578,6 +584,20 @@
   }
   .legal-fab a:hover { text-decoration:underline; }
   @media (max-width: 900px) {
+    .mobile-nav {
+      width:calc(100vw - 12px);
+      border-radius:12px 12px 0 0;
+    }
+    .mobile-nav-wrap {
+      padding:6px 10px calc(8px + env(safe-area-inset-bottom));
+    }
+    .mobile-nav-btn { font-size:11px; }
+    .mobile-nav-btn.center {
+      width:44px;
+      height:44px;
+      border-radius:14px;
+      font-size:20px;
+    }
     .legal-fab { left:10px; bottom:82px; font-size:11px; padding:7px 9px; max-width:calc(100vw - 96px); }
   }
 </style>
@@ -1798,7 +1818,6 @@ function renderFeed() {
             <span class="badge-beta">校园版</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-outline" id="btn-me">我的${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
             ${state.isAdmin ? `<button class="btn-outline" id="btn-admin">管理面板</button>` : ""}
             <button class="btn-outline" id="btn-logout">退出登录</button>
           </div>
