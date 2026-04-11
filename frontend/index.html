@@ -1315,7 +1315,7 @@ function renderLogin() {
               <label class="form-label" style="margin-top:8px">密码</label>
               <div class="input-with-toggle">
                 <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="32">
-                <button class="pwd-toggle" id="btn-login-pwd-toggle" type="button" title="显示/隐藏密码">👁</button>
+                <button class="pwd-toggle" id="btn-login-pwd-toggle" type="button" title="显示/隐藏密码">🙈</button>
               </div>
               <div class="form-hint">💡 首次登录请切换到“验证码登录”，验证后设置密码</div>
             ` : `
@@ -1454,7 +1454,7 @@ function bindLogin() {
       pwdToggle.addEventListener("click", () => {
         const show = pwd.type === "password";
         pwd.type = show ? "text" : "password";
-        pwdToggle.textContent = show ? "🙈" : "👁";
+        pwdToggle.textContent = show ? "🐵" : "🙈";
       });
     }
 
@@ -1609,12 +1609,12 @@ function renderSetPassword() {
         <label class="form-label">新密码</label>
         <div class="input-with-toggle">
           <input class="form-input" id="set-pwd-1" type="password" maxlength="32" placeholder="请输入 6-32 位密码" value="${escapeAttr(setPwd1)}">
-          <button class="pwd-toggle" id="btn-set-pwd-1-toggle" type="button" title="显示/隐藏密码">👁</button>
+          <button class="pwd-toggle" id="btn-set-pwd-1-toggle" type="button" title="显示/隐藏密码">🙈</button>
         </div>
         <label class="form-label" style="margin-top:8px">确认密码</label>
         <div class="input-with-toggle">
           <input class="form-input" id="set-pwd-2" type="password" maxlength="32" placeholder="请再次输入密码" value="${escapeAttr(setPwd2)}">
-          <button class="pwd-toggle" id="btn-set-pwd-2-toggle" type="button" title="显示/隐藏密码">👁</button>
+          <button class="pwd-toggle" id="btn-set-pwd-2-toggle" type="button" title="显示/隐藏密码">🙈</button>
         </div>
         <div class="form-hint">💡 密码规则：6-32位，不含空格，避免弱口令</div>
         <div id="set-pwd-error"></div>
@@ -1640,12 +1640,12 @@ function bindSetPassword() {
   if (t1) t1.addEventListener("click", () => {
     const show = p1.type === "password";
     p1.type = show ? "text" : "password";
-    t1.textContent = show ? "🙈" : "👁";
+    t1.textContent = show ? "🐵" : "🙈";
   });
   if (t2) t2.addEventListener("click", () => {
     const show = p2.type === "password";
     p2.type = show ? "text" : "password";
-    t2.textContent = show ? "🙈" : "👁";
+    t2.textContent = show ? "🐵" : "🙈";
   });
   p2.addEventListener("keydown", e => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
   btn.addEventListener("click", submitSetPassword);
