@@ -735,6 +735,7 @@ let state = {
     index: 0,
     zoom: 1,
   },
+  pendingCommentId: null,
   detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
   meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
@@ -920,6 +921,12 @@ function openDetailPage(post) {
   state.detailOnlyAuthor = false;
   syncPostQuery(post?.id || null);
   render();
+}
+
+async function openPostFromNotification(postId, commentId = null) {
+  const post = await apiFetch(`/api/posts/${postId}`);
+  state.pendingCommentId = Number.isFinite(commentId) ? commentId : null;
+  openDetailPage(post);
 }
 
 function goBackFromDetail() {
@@ -1940,7 +1947,7 @@ function mePostListHTML(rows, emptyText) {
 function meNotificationListHTML(rows) {
   if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">暂无消息</div>`;
   return rows.map(n => `
-    <div class="comment-item" ${n.post_id ? `data-me-notice-post="${n.post_id}"` : ""}>
+    <div class="comment-item" data-me-notice-id="${escapeAttr(n.id || "")}" style="${n.post_id ? "cursor:pointer" : "cursor:pointer"}">
       <div style="font-size:14px">${escapeHTML(n.text || "")}</div>
       <div style="font-size:12px;color:var(--text3);margin-top:6px">${timeAgo(n.created_at)}</div>
     </div>
@@ -2113,15 +2120,24 @@ function bindMe() {
       }
     });
   });
-  document.querySelectorAll("[data-me-notice-post]").forEach(el => {
+  document.querySelectorAll("[data-me-notice-id]").forEach(el => {
     el.addEventListener("click", async () => {
-      const pid = parseInt(el.dataset.meNoticePost || "", 10);
-      if (!Number.isFinite(pid)) return;
+      const noticeId = String(el.dataset.meNoticeId || "");
+      const notice = (state.notifications || []).find(n => String(n.id) === noticeId);
+      if (!notice) return;
       try {
-        const post = await apiFetch(`/api/posts/${pid}`);
-        openDetailPage(post);
+        if (Number.isFinite(notice.post_id)) {
+          await openPostFromNotification(
+            notice.post_id,
+            Number.isFinite(notice.comment_id) ? notice.comment_id : null
+          );
+          markNotificationsRead();
+          return;
+        }
+        showNotificationDetail(notice);
+        markNotificationsRead();
       } catch (e) {
-        showToast("帖子已不存在");
+        showToast(e.message || "消息跳转失败");
       }
     });
   });
@@ -2130,11 +2146,9 @@ function bindMe() {
       const tab = el.dataset.meTab;
       if (!tab || tab === state.meTab) return;
       state.meTab = tab;
-      if (tab === "messages") markNotificationsRead();
       render();
     });
   });
-  if (state.meTab === "messages") markNotificationsRead();
   bindMePullRefresh();
   bindMobileNav();
 }
@@ -2612,6 +2626,7 @@ async function refreshNotifications() {
               type: "comment",
               created_at: c.created_at,
               post_id: p.id,
+              comment_id: c.id,
               text: `${c.anon_name} 评论了你的帖子（${formatHoleNo(p.id, p.created_at)}）`,
             });
           }
@@ -2660,6 +2675,26 @@ function updateNoticeBadges() {
   }
 }
 
+function showNotificationDetail(notice) {
+  const root = document.getElementById("modal-root");
+  if (!root) {
+    alert(notice?.text || "暂无详情");
+    return;
+  }
+  root.innerHTML = `
+    <div class="modal-overlay" id="notice-detail-overlay">
+      <div class="modal-content" id="notice-detail-body" style="max-width:640px">
+        <div class="modal-title"><span>消息详情</span><button class="modal-close" id="notice-detail-close">✕</button></div>
+        <div style="font-size:14px;line-height:1.8">${escapeHTML(notice?.text || "")}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:8px">${timeAgo(notice?.created_at)}</div>
+      </div>
+    </div>`;
+  const close = () => { root.innerHTML = ""; };
+  document.getElementById("notice-detail-close")?.addEventListener("click", close);
+  document.getElementById("notice-detail-overlay")?.addEventListener("click", (e) => { if (e.target.id === "notice-detail-overlay") close(); });
+  document.getElementById("notice-detail-body")?.addEventListener("click", (e) => e.stopPropagation());
+}
+
 async function showNotifications() {
   const root = document.getElementById("modal-root");
   root.innerHTML = `
@@ -2686,27 +2721,33 @@ async function showNotifications() {
   const list = document.getElementById("notify-list");
   if (state.notifications.length) {
     list.innerHTML = state.notifications.map(n => `
-      <div class="comment-item" data-notice-post="${n.post_id}">
+      <div class="comment-item" data-notice-id="${escapeAttr(n.id || "")}" style="cursor:pointer">
         <div style="font-size:14px">${escapeHTML(n.text)}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:4px">${timeAgo(n.created_at)}</div>
       </div>
     `).join("");
-    list.querySelectorAll("[data-notice-post]").forEach(el => {
+    list.querySelectorAll("[data-notice-id]").forEach(el => {
       el.addEventListener("click", async () => {
-        const pid = parseInt(el.dataset.noticePost);
+        const noticeId = String(el.dataset.noticeId || "");
+        const notice = (state.notifications || []).find(n => String(n.id) === noticeId);
+        if (!notice) return;
         try {
-          const post = await apiFetch(`/api/posts/${pid}`);
-          close();
-          openDetailPage(post);
+          if (Number.isFinite(notice.post_id)) {
+            close();
+            await openPostFromNotification(
+              notice.post_id,
+              Number.isFinite(notice.comment_id) ? notice.comment_id : null
+            );
+          } else {
+            showNotificationDetail(notice);
+          }
         } catch (e) {
           showToast("帖子已不存在");
         }
       });
     });
   }
-  localStorage.setItem("sdu_notice_read_at", String(Date.now()));
-  state.unreadNoticeCount = 0;
-  updateNoticeBadges();
+  markNotificationsRead();
 }
 
 function showAnnouncementModal() {
@@ -3304,7 +3345,7 @@ async function loadComments() {
       });
 
       const renderCommentRow = (c, floor, isChild = false) => `
-        <div class="${isChild ? "comment-child-item" : "comment-item"}" style="animation-delay:${floor*40}ms">
+        <div class="${isChild ? "comment-child-item" : "comment-item"}" data-comment-id="${c.id}" style="animation-delay:${floor*40}ms">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             ${avatarHTML(c.id * 3, c.anon_name, 24)}
             <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
@@ -3335,6 +3376,19 @@ async function loadComments() {
         return `${rootHtml}${childWrap}`;
       }).join("");
       bindCommentActions();
+      if (Number.isFinite(state.pendingCommentId)) {
+        const target = list.querySelector(`[data-comment-id="${state.pendingCommentId}"]`);
+        state.pendingCommentId = null;
+        if (target) {
+          target.style.background = "rgba(166,27,41,0.06)";
+          target.style.borderRadius = "8px";
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => {
+            target.style.background = "";
+            target.style.borderRadius = "";
+          }, 1600);
+        }
+      }
     }
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}</div>`;
