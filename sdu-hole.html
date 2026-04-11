@@ -462,6 +462,8 @@ let state = {
   posts: [],
   mePosts: [],
   meFavorites: [],
+  meAppeals: [],
+  meTab: "posts", // posts | favorites | messages | appeals
   meLoading: false,
   selectedPost: null,
   comments: [],
@@ -1339,7 +1341,54 @@ function mePostListHTML(rows, emptyText) {
   `).join("");
 }
 
+function meNotificationListHTML(rows) {
+  if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">暂无消息</div>`;
+  return rows.map(n => `
+    <div class="comment-item" data-me-notice-post="${n.post_id}">
+      <div style="font-size:14px">${escapeHTML(n.text || "")}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">${timeAgo(n.created_at)}</div>
+    </div>
+  `).join("");
+}
+
+function meAppealListHTML(rows) {
+  if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">暂无申诉记录</div>`;
+  return rows.map(a => `
+    <div class="comment-item">
+      <div style="font-size:13px;color:var(--text2)">申诉 #${a.id} · 记录 ${a.moderation_log_id} · ${timeAgo(a.created_at)}</div>
+      <div style="font-size:14px;margin-top:6px">${escapeHTML(a.content || "")}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">状态：${escapeHTML(a.status || "pending")} ${a.admin_reply ? "· 回复：" + escapeHTML(a.admin_reply) : ""}</div>
+    </div>
+  `).join("");
+}
+
+function meTabTitle() {
+  if (state.meTab === "favorites") return "我的收藏";
+  if (state.meTab === "messages") return "我的消息";
+  if (state.meTab === "appeals") return "申诉记录";
+  return "我的帖子";
+}
+
 function renderMe() {
+  const tabs = [
+    { key: "posts", label: "帖子" },
+    { key: "favorites", label: "收藏" },
+    { key: "messages", label: "消息" },
+    { key: "appeals", label: "申诉" },
+  ];
+  const tabHtml = tabs.map(t => `<button class="tab-btn ${state.meTab===t.key?"active":""}" data-me-tab="${t.key}">${t.label}</button>`).join("");
+  let contentHtml = "";
+  if (state.meLoading) {
+    contentHtml = `<div class="empty-state" style="padding:18px 10px">加载中...</div>`;
+  } else if (state.meTab === "favorites") {
+    contentHtml = mePostListHTML(state.meFavorites, "你还没有收藏帖子");
+  } else if (state.meTab === "messages") {
+    contentHtml = meNotificationListHTML(state.notifications);
+  } else if (state.meTab === "appeals") {
+    contentHtml = meAppealListHTML(state.meAppeals);
+  } else {
+    contentHtml = mePostListHTML(state.mePosts, "你还没有发布帖子");
+  }
   return `
     <div class="container">
       <div class="feed-header">
@@ -1357,8 +1406,6 @@ function renderMe() {
       <div class="detail-card" style="margin-bottom:12px">
         <div style="font-size:13px;color:var(--text2);margin-bottom:10px">个人中心</div>
         <div class="tool-row">
-          <button class="btn-outline" id="btn-me-notify">消息中心${state.unreadNoticeCount>0?`<span class="notify-dot">${state.unreadNoticeCount}</span>`:""}</button>
-          <button class="btn-outline" id="btn-me-appeal">申诉中心</button>
           <button class="btn-outline" id="btn-me-block">屏蔽设置</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-me-admin">管理面板</button>` : ""}
           <button class="btn-outline" id="btn-me-refresh">刷新数据</button>
@@ -1368,16 +1415,10 @@ function renderMe() {
 
       <div class="detail-card" style="margin-bottom:12px">
         <div class="section-header-row">
-          <div class="section-title" style="border:none;margin:0;padding:0">我的帖子（最近20条）</div>
+          <div class="section-title" style="border:none;margin:0;padding:0">${meTabTitle()}</div>
         </div>
-        <div id="me-posts-list">${state.meLoading ? `<div class="empty-state" style="padding:18px 10px">加载中...</div>` : mePostListHTML(state.mePosts, "你还没有发布帖子")}</div>
-      </div>
-
-      <div class="detail-card">
-        <div class="section-header-row">
-          <div class="section-title" style="border:none;margin:0;padding:0">我的收藏（最近20条）</div>
-        </div>
-        <div id="me-favs-list">${state.meLoading ? `<div class="empty-state" style="padding:18px 10px">加载中...</div>` : mePostListHTML(state.meFavorites, "你还没有收藏帖子")}</div>
+        <div class="tab-bar" style="margin:0 0 8px 0">${tabHtml}</div>
+        <div id="me-content-list">${contentHtml}</div>
       </div>
       <div style="height:80px"></div>
     </div>
@@ -1386,12 +1427,15 @@ function renderMe() {
 
 async function loadMeData() {
   try {
-    const [mine, favs] = await Promise.all([
+    await refreshNotifications();
+    const [mine, favs, appeals] = await Promise.all([
       apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
       apiFetch("/api/posts/?favorited=true&order=new&page=1&size=20"),
+      apiFetch("/api/auth/appeals?page=1&size=20").catch(() => []),
     ]);
     state.mePosts = mine || [];
     state.meFavorites = favs || [];
+    state.meAppeals = appeals || [];
   } catch (e) {
     showToast(e.message || "加载我的数据失败");
   } finally {
@@ -1402,6 +1446,7 @@ async function loadMeData() {
 
 function openMePage() {
   state.page = "me";
+  state.meTab = "posts";
   state.meLoading = true;
   render();
 }
@@ -1415,8 +1460,6 @@ function bindMe() {
       render();
     });
   }
-  document.getElementById("btn-me-notify")?.addEventListener("click", showNotifications);
-  document.getElementById("btn-me-appeal")?.addEventListener("click", showAppealCenter);
   document.getElementById("btn-me-block")?.addEventListener("click", showBlockSettings);
   document.getElementById("btn-me-admin")?.addEventListener("click", showAdminPanel);
   document.getElementById("btn-me-refresh")?.addEventListener("click", () => {
@@ -1451,7 +1494,29 @@ function bindMe() {
       }
     });
   });
-  refreshNotifications();
+  document.querySelectorAll("[data-me-notice-post]").forEach(el => {
+    el.addEventListener("click", async () => {
+      const pid = parseInt(el.dataset.meNoticePost || "", 10);
+      if (!Number.isFinite(pid)) return;
+      try {
+        state.selectedPost = await apiFetch(`/api/posts/${pid}`);
+        state.page = "detail";
+        state.detailOnlyAuthor = false;
+        syncPostQuery(pid);
+        render();
+      } catch (e) {
+        showToast("帖子已不存在");
+      }
+    });
+  });
+  document.querySelectorAll("[data-me-tab]").forEach(el => {
+    el.addEventListener("click", () => {
+      const tab = el.dataset.meTab;
+      if (!tab || tab === state.meTab) return;
+      state.meTab = tab;
+      render();
+    });
+  });
 }
 
 function bindFeed() {
