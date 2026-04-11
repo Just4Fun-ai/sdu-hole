@@ -1,11 +1,12 @@
 from typing import Optional
+import math
 import io
 import os
 import secrets
 
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from fastapi.responses import FileResponse
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image, UnidentifiedImageError
 
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/posts", tags=["帖子"])
 
 HOT_LIKE_WEIGHT = 2
 HOT_COMMENT_WEIGHT = 3
+HOT_TOP_PERCENT = 0.10
 
 VALID_TAGS = [
     "课程评价", "校园活动", "美食推荐", "游玩推荐",
@@ -131,24 +133,34 @@ async def list_posts(
     user: User = Depends(get_current_user),
 ):
     ensure_nickname_bound(user)
-    query = select(Post).where(Post.is_deleted == False)
+    base_query = select(Post).where(Post.is_deleted == False)
     if not tag:
-        query = query.where(Post.tag != "公告")
+        base_query = base_query.where(Post.tag != "公告")
 
     if tag:
-        query = query.where(Post.tag == tag)
+        base_query = base_query.where(Post.tag == tag)
     if mine:
-        query = query.where(Post.user_id == user.id)
+        base_query = base_query.where(Post.user_id == user.id)
     if favorited:
-        query = query.join(Favorite, Favorite.post_id == Post.id).where(Favorite.user_id == user.id)
+        base_query = base_query.join(Favorite, Favorite.post_id == Post.id).where(Favorite.user_id == user.id)
+
+    query = base_query
 
     if order == "hot":
         hot_score = (Post.like_count * HOT_LIKE_WEIGHT) + (Post.comment_count * HOT_COMMENT_WEIGHT)
         query = query.order_by(desc(hot_score), desc(Post.created_at))
+
+        # 仅返回“最热前 X%”的数据，避免最热列表过长
+        total_query = select(func.count()).select_from(base_query.subquery())
+        total = (await db.execute(total_query)).scalar_one() or 0
+        hot_pool = max(1, math.ceil(total * HOT_TOP_PERCENT)) if total > 0 else 0
+        offset = (page - 1) * size
+        if offset >= hot_pool:
+            return []
+        query = query.offset(offset).limit(min(size, hot_pool - offset))
     else:
         query = query.order_by(desc(Post.created_at))
-
-    query = query.offset((page - 1) * size).limit(size)
+        query = query.offset((page - 1) * size).limit(size)
     result = await db.execute(query)
     posts = result.scalars().all()
 
