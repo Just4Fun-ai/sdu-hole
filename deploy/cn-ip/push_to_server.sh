@@ -43,6 +43,11 @@ ENV_BAK='/tmp/sdu-hole.env.bak'
 TMP_EXTRACT='/tmp/sdu-hole-deploy'
 DATA_DIR='/opt/sdu-hole/data'
 DB_FILE=\"\${DATA_DIR}/sdu_hole.db\"
+DB_BEFORE_SUM=''
+DB_AFTER_SUM=''
+if [ -f \"\${DB_FILE}\" ]; then
+  DB_BEFORE_SUM=\$(sudo sha256sum \"\${DB_FILE}\" | awk '{print \$1}')
+fi
 if [ -f '${APP_DIR}/sdu-hole/.env' ]; then
   sudo cp '${APP_DIR}/sdu-hole/.env' \"\$ENV_BAK\"
 fi
@@ -52,7 +57,10 @@ sudo rm -rf \"\${TMP_EXTRACT}\"
 sudo mkdir -p \"\${TMP_EXTRACT}\"
 sudo tar -xzf ~/sdu-hole.tar.gz -C \"\${TMP_EXTRACT}\"
 sudo mkdir -p '${APP_DIR}'
-sudo rsync -a --delete \"\${TMP_EXTRACT}/\" '${APP_DIR}/'
+sudo rsync -a --delete \
+  --exclude 'sdu-hole/.env' \
+  --exclude 'sdu-hole/sdu_hole.db' \
+  \"\${TMP_EXTRACT}/\" '${APP_DIR}/'
 sudo rm -rf \"\${TMP_EXTRACT}\"
 
 if [ -f \"\$ENV_BAK\" ]; then
@@ -78,6 +86,8 @@ else
   echo 'IMAGE_UPLOAD_DIR=/opt/sdu-hole/data/uploads' | sudo tee -a '${APP_DIR}/sdu-hole/.env' >/dev/null
 fi
 sudo mkdir -p /opt/sdu-hole/data/uploads
+# 删除应用目录里的 sqlite，彻底避免误连到相对路径库
+sudo rm -f '${APP_DIR}/sdu-hole/sdu_hole.db'
 
 if [ \"\${SKIP_PIP:-0}\" != \"1\" ]; then
   sudo /opt/sdu-hole/venv/bin/pip install -r '${APP_DIR}/sdu-hole/requirements.txt'
@@ -107,6 +117,11 @@ echo '==> Effective DATABASE_URL in server env:'
 sudo grep '^DATABASE_URL=' '${APP_DIR}/sdu-hole/.env' || true
 echo '==> Existing DB file:'
 sudo ls -lh /opt/sdu-hole/data/sdu_hole.db || true
+if [ -f \"\${DB_FILE}\" ]; then
+  DB_AFTER_SUM=\$(sudo sha256sum \"\${DB_FILE}\" | awk '{print \$1}')
+fi
+echo '==> DB sha256 (before -> after):'
+echo \"\${DB_BEFORE_SUM:-<none>} -> \${DB_AFTER_SUM:-<none>}\"
 "
 
 echo

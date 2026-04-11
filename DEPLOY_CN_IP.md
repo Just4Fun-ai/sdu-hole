@@ -108,6 +108,12 @@ cd 你的项目目录
 bash deploy/cn-ip/push_to_server.sh 你的服务器IP
 ```
 
+脚本内置保护（默认开启）：
+- 不上传 `.env`、不上传 `sdu_hole.db`
+- 服务器 `rsync` 也二次排除 `.env`、`sdu_hole.db`
+- 强制 `DATABASE_URL=/opt/sdu-hole/data/sdu_hole.db`
+- 部署后打印数据库 `sha256`（部署前 -> 部署后），便于确认未被覆盖
+
 如果你手动在服务器 `git pull`，请务必确保：
 - `.env` 没被覆盖
 - `DATABASE_URL` 仍是 `/opt/sdu-hole/data/sdu_hole.db`
@@ -161,4 +167,21 @@ sudo bash /opt/sdu-hole/app/deploy/cn-ip/backup_sdu_hole.sh
 
 ```bash
 sudo bash /opt/sdu-hole/app/deploy/cn-ip/restore_sdu_hole.sh /opt/sdu-hole/backups/你的备份包.tar.gz
+```
+
+## 11. 常用命令在哪执行（很重要）
+
+- 本地终端（你的 Mac）执行：
+```bash
+cd /Users/lesux/Code/sdutreehole
+bash deploy/cn-ip/push_to_server.sh 82.157.101.92
+```
+
+- 服务器终端（SSH 进去后）执行：
+```bash
+sudo -i
+systemctl status sdu-hole --no-pager
+systemctl status nginx --no-pager
+grep '^DATABASE_URL=' /opt/sdu-hole/app/sdu-hole/.env
+ls -lh /opt/sdu-hole/data/sdu_hole.db
 ```

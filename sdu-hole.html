@@ -124,6 +124,9 @@
   .tag-bar { display:flex; gap:6px; overflow-x:auto; padding:12px 0; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .tag-bar::-webkit-scrollbar { display:none; }
   .search-row { margin-top:12px; }
+  .feed-search-row { display:flex; gap:8px; align-items:center; }
+  .feed-search-row .search-input { flex:1; min-width:0; }
+  .feed-search-row .btn-outline { flex-shrink:0; padding:8px 10px; }
   .tool-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .search-input {
     width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
@@ -262,7 +265,12 @@
     border-radius:999px;
     padding:5px 12px;
   }
-  .post-actions { display:flex; align-items:center; gap:18px; }
+  .post-actions { display:flex; align-items:center; gap:14px; flex-wrap:wrap; row-gap:8px; }
+  .post-actions.admin-tools {
+    margin-top:6px;
+    padding-top:6px;
+    border-top:1px dashed var(--border-light);
+  }
   .action-btn {
     display:flex; align-items:center; gap:5px; font-size:13px; color:var(--text3);
     cursor:pointer; background:none; border:none; transition:color .2s; padding:0;
@@ -364,60 +372,91 @@
   .detail-content { font-size:16px; line-height:1.9; }
   .section-title { font-size:14px; font-weight:600; color:var(--text2); padding:8px 0 12px; border-bottom:1px solid var(--border-light); margin-bottom:4px; }
   .me-hero {
-    background:linear-gradient(165deg, #fff, #fcf5f6 65%, #f7eded 100%);
+    background:linear-gradient(180deg, #fff, #fff8f8 120%);
     border:1px solid var(--border);
-    border-radius:16px;
+    border-radius:18px;
     padding:16px;
     margin-bottom:12px;
+    box-shadow:0 6px 22px rgba(48,30,30,.06);
   }
-  .me-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .me-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
   .me-user { display:flex; align-items:center; gap:12px; min-width:0; }
   .me-avatar {
-    width:52px; height:52px; border-radius:14px;
+    width:56px; height:56px; border-radius:999px;
     display:flex; align-items:center; justify-content:center;
-    font-size:22px; font-weight:700; color:#fff;
+    font-size:21px; font-weight:700; color:#fff;
     background:linear-gradient(145deg,#be2a38,var(--accent));
-    box-shadow:0 4px 14px rgba(166,27,41,.28);
+    box-shadow:0 8px 18px rgba(166,27,41,.28);
     flex-shrink:0;
+    border:2px solid rgba(255,255,255,.92);
   }
   .me-name { font-size:20px; font-weight:700; color:#2f2b28; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px; }
   .me-sub { font-size:12px; color:var(--text3); margin-top:3px; }
   .me-badge {
-    font-size:11px; font-weight:700; color:var(--accent);
-    border:1px solid var(--accent-border); background:var(--accent-soft);
-    padding:2px 8px; border-radius:999px;
+    font-size:11px; font-weight:700; color:#fff;
+    border:1px solid rgba(166,27,41,.18); background:var(--accent);
+    padding:3px 9px; border-radius:999px;
+    align-self:center;
   }
   .me-stats {
-    display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
-    gap:8px; margin-top:12px;
+    display:flex; gap:18px; margin:14px 0 0;
+    padding-top:10px; border-top:1px solid var(--border-light);
   }
   .me-stat {
-    background:#fff; border:1px solid var(--border); border-radius:12px;
-    padding:10px 8px; text-align:center;
+    text-align:left;
   }
-  .me-stat .num { font-size:18px; font-weight:700; color:#2f2b28; line-height:1; }
-  .me-stat .label { font-size:11px; color:var(--text3); margin-top:4px; }
-  .me-quick {
-    display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
-    gap:8px; margin-top:10px;
+  .me-stat .num { font-size:20px; font-weight:700; color:#2f2b28; line-height:1; }
+  .me-stat .label { font-size:11px; color:var(--text3); margin-top:5px; }
+  .me-actions {
+    display:flex;
+    gap:8px;
+    margin:2px 0 12px;
+    flex-wrap:wrap;
   }
-  .me-q-btn {
-    border:1px solid var(--border);
-    background:#fff;
-    border-radius:12px;
-    padding:8px 6px;
-    text-align:center;
+  .me-actions .btn-outline {
+    padding:7px 12px;
     font-size:12px;
-    color:var(--text2);
-    cursor:pointer;
+    border-radius:999px;
+    background:#fff;
   }
-  .me-q-btn strong { display:block; color:#2f2b28; font-size:13px; margin-top:2px; }
-  .me-q-btn:hover { border-color:var(--accent-border); color:var(--accent); }
+  .me-tab-head {
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
   @media (max-width:760px){
-    .me-stats,.me-quick { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .me-name { max-width:150px; font-size:18px; }
+    .me-stats { gap:12px; justify-content:space-between; }
+  }
+  @media (max-width:640px){
+    .feed-search-row { flex-wrap:wrap; }
+    .feed-search-row .search-input { width:100%; flex-basis:100%; }
+    .feed-search-row .btn-outline { padding:7px 10px; }
   }
   .comment-item { padding:14px 0; border-bottom:1px solid var(--border-light); animation:fadeIn .3s ease-out; }
+  .me-panel {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:16px;
+  }
+  .me-panel .tab-bar {
+    background:var(--bg);
+    padding:4px;
+    border-radius:12px;
+    display:inline-flex;
+    gap:4px;
+    margin:0 0 10px 0;
+  }
+  .me-panel .tab-btn {
+    padding:6px 12px;
+    border-radius:9px;
+  }
+  .me-panel .tab-btn.active {
+    box-shadow:0 3px 10px rgba(166,27,41,.18);
+  }
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
     border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
@@ -1353,13 +1392,11 @@ function renderFeed() {
           </div>
         </div>
         <div class="tab-bar">
-          <button class="tab-btn ${state.order==="new"?"active":""}" data-order="new">🕐 最新</button>
-          <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">🔥 最热</button>
+          <button class="tab-btn ${state.order==="new"?"active":""}" data-order="new">最新</button>
+          <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">最热</button>
         </div>
-        <div class="search-row">
-          <input id="search-input" class="search-input" placeholder="搜索关键词 / 洞号直达（示例：tag:美食推荐 关键词 或 sdu-260410-12）" value="${escapeAttr(state.keyword)}">
-        </div>
-        <div class="tool-row">
+        <div class="search-row feed-search-row">
+          <input id="search-input" class="search-input" placeholder="搜索关键词或洞号（支持片段：12 / 0410 / sdu-260410-12）" value="${escapeAttr(state.keyword)}">
           <button class="btn-outline" id="btn-refresh">刷新</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
         </div>
@@ -1407,7 +1444,14 @@ function meNotificationListHTML(rows) {
 }
 
 function meAppealListHTML(rows) {
-  if (!rows || !rows.length) return `<div class="empty-state" style="padding:18px 10px">暂无申诉记录</div>`;
+  if (!rows || !rows.length) {
+    return `
+      <div class="empty-state" style="padding:18px 10px">
+        <div style="margin-bottom:10px">暂无申诉记录</div>
+        <button class="btn-outline" id="btn-empty-open-appeal">发起申诉</button>
+      </div>
+    `;
+  }
   return rows.map(a => `
     <div class="comment-item">
       <div style="font-size:13px;color:var(--text2)">申诉 #${a.id} · 记录 ${a.moderation_log_id} · ${timeAgo(a.created_at)}</div>
@@ -1471,7 +1515,7 @@ function renderMe() {
             <div class="me-avatar">${escapeHTML(avatarText(name))}</div>
             <div>
               <div class="me-name">${escapeHTML(name)}</div>
-              <div class="me-sub">校园匿名社区 · 文明交流</div>
+              <div class="me-sub">${state.isAdmin ? "管理员模式 · 校园匿名交流" : "校园匿名交流"}</div>
             </div>
           </div>
           ${state.isAdmin ? `<span class="me-badge">管理员</span>` : ""}
@@ -1479,29 +1523,24 @@ function renderMe() {
         <div class="me-stats">
           <div class="me-stat"><div class="num">${state.mePosts.length}</div><div class="label">我的帖子</div></div>
           <div class="me-stat"><div class="num">${state.meFavorites.length}</div><div class="label">我的收藏</div></div>
-          <div class="me-stat"><div class="num">${state.unreadNoticeCount}</div><div class="label">未读消息</div></div>
-          <div class="me-stat"><div class="num">${pendingAppeals}</div><div class="label">待处理申诉</div></div>
-        </div>
-        <div class="me-quick">
-          <button class="me-q-btn" id="btn-me-tab-posts">📝<strong>帖子</strong></button>
-          <button class="me-q-btn" id="btn-me-tab-favorites">⭐<strong>收藏</strong></button>
-          <button class="me-q-btn" id="btn-me-tab-messages">🔔<strong>消息</strong></button>
-          <button class="me-q-btn" id="btn-me-tab-appeals">🧾<strong>申诉</strong></button>
+          <div class="me-stat"><div class="num">${state.unreadNoticeCount + pendingAppeals}</div><div class="label">待处理</div></div>
         </div>
       </div>
 
-      <div class="detail-card" style="margin-bottom:12px">
-        <div class="tool-row">
+      <div class="me-panel" style="margin-bottom:12px">
+        <div class="me-actions">
           <button class="btn-outline" id="btn-me-block">屏蔽设置</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-me-admin">管理面板</button>` : ""}
-          <button class="btn-outline" id="btn-me-refresh">刷新数据</button>
           <button class="btn-outline" id="btn-me-logout">退出登录</button>
         </div>
-      </div>
-
-      <div class="detail-card" style="margin-bottom:12px">
         <div class="section-header-row">
-          <div class="section-title" style="border:none;margin:0;padding:0">${meTabTitle()}</div>
+          <div class="me-tab-head">
+            <div class="section-title" style="border:none;margin:0;padding:0">${meTabTitle()}</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              ${state.meTab === "appeals" ? `<button class="btn-outline" id="btn-me-open-appeal">发起申诉</button>` : ""}
+              <button class="btn-outline" id="btn-me-refresh">刷新</button>
+            </div>
+          </div>
         </div>
         <div class="tab-bar" style="margin:0 0 8px 0">${tabHtml}</div>
         <div id="me-content-list">${contentHtml}</div>
@@ -1555,6 +1594,8 @@ function bindMe() {
   }
   document.getElementById("btn-me-block")?.addEventListener("click", showBlockSettings);
   document.getElementById("btn-me-admin")?.addEventListener("click", showAdminPanel);
+  document.getElementById("btn-me-open-appeal")?.addEventListener("click", showAppealCenter);
+  document.getElementById("btn-empty-open-appeal")?.addEventListener("click", showAppealCenter);
   document.getElementById("btn-me-refresh")?.addEventListener("click", () => {
     state.meLoading = true;
     render();
@@ -1609,22 +1650,6 @@ function bindMe() {
       state.meTab = tab;
       render();
     });
-  });
-  document.getElementById("btn-me-tab-posts")?.addEventListener("click", () => {
-    state.meTab = "posts";
-    render();
-  });
-  document.getElementById("btn-me-tab-favorites")?.addEventListener("click", () => {
-    state.meTab = "favorites";
-    render();
-  });
-  document.getElementById("btn-me-tab-messages")?.addEventListener("click", () => {
-    state.meTab = "messages";
-    render();
-  });
-  document.getElementById("btn-me-tab-appeals")?.addEventListener("click", () => {
-    state.meTab = "appeals";
-    render();
   });
 }
 
@@ -1803,7 +1828,12 @@ function filteredPosts() {
   let rows = state.posts.filter(p => !isBlockedPost(p));
   if (tag && tag !== "全部") rows = rows.filter(p => p.tag === tag);
   if (!keyword) return rows;
-  return rows.filter(p => `${p.tag}\n${p.content}\n${p.anon_name}`.toLowerCase().includes(keyword));
+  return rows.filter(p => {
+    const holeNo = formatHoleNo(p.id, p.created_at).toLowerCase();         // sdu-260411-12
+    const holeCompact = holeNo.replace(/[^a-z0-9]/g, "");                  // sdu26041112
+    const text = `${p.tag}\n${p.content}\n${p.anon_name}\n${holeNo}\n${holeCompact}\n${p.id}`.toLowerCase();
+    return text.includes(keyword);
+  });
 }
 
 function reviewMetaHTML(post) {
@@ -2424,14 +2454,17 @@ function renderPostList() {
       ${renderPostImagesPreview(p, false)}
       ${postContentHTML(p)}
       <div class="post-actions">
-        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"⭐":"☆"} 收藏</button>
-        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
-        <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
-        <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
-        ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">🗑 删除</button>` : ""}
-        ${state.isAdmin ? `<button class="action-btn warn" data-admin-delete-post="${p.id}">🛠 管理删除</button>` : ""}
-        ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" data-ban-author="${p.id}">⛔ 禁言作者</button>` : ""}
+        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">${p.is_favorited?"已收藏":"收藏"}</button>
+        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">点赞 <span class="like-count">${p.like_count}</span></button>
+        <button class="action-btn" data-goto="${p.id}">评论 ${p.comment_count}</button>
+        <button class="action-btn warn" data-report-post="${p.id}">举报</button>
+        ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">删除</button>` : ""}
       </div>
+      ${state.isAdmin ? `
+      <div class="post-actions admin-tools">
+        ${state.isAdmin ? `<button class="action-btn warn" data-admin-delete-post="${p.id}">管理删帖</button>` : ""}
+        ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" data-ban-author="${p.id}">禁言作者</button>` : ""}
+      </div>` : ""}
     </div>
   `).join("");
   bindPostListInteractions(list);
@@ -2464,9 +2497,9 @@ function renderDetail() {
         <div class="detail-meta-row">
           <div class="detail-meta-left">${formatHoleNo(p.id, p.created_at)}</div>
           <div class="detail-meta-actions">
-            <button class="action-btn" id="detail-copy-id-btn">📋 复制洞号</button>
-            <button class="action-btn" id="detail-copy-content-btn">📄 复制全文</button>
-            <button class="action-btn" id="detail-share-btn">🔗 复制链接</button>
+            <button class="action-btn" id="detail-copy-id-btn">复制洞号</button>
+            <button class="action-btn" id="detail-copy-content-btn">复制全文</button>
+            <button class="action-btn" id="detail-share-btn">复制链接</button>
           </div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -2479,15 +2512,15 @@ function renderDetail() {
         ${detailContentHTML(p)}
         <div class="post-actions" style="margin-top:12px">
           <button class="action-btn ${p.is_favorited?"liked":""}" id="detail-fav-btn">
-            ${p.is_favorited ? "⭐ 收藏" : "☆ 收藏"}
+            ${p.is_favorited ? "已收藏" : "收藏"}
           </button>
           <button class="action-btn ${p.is_liked?"liked":""}" id="detail-like-btn">
-            ${p.is_liked?"❤️":"🤍"} <span id="detail-like-count">${p.like_count}</span>
+            点赞 <span id="detail-like-count">${p.like_count}</span>
           </button>
-          <button class="action-btn warn" id="detail-report-btn">🚩 举报帖子</button>
-          ${p.is_mine ? `<button class="action-btn warn" id="detail-delete-btn">🗑 删除帖子</button>` : ""}
-          ${state.isAdmin ? `<button class="action-btn warn" id="detail-admin-delete-btn">🛠 管理删除</button>` : ""}
-          ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" id="detail-ban-author-btn">⛔ 禁言作者</button>` : ""}
+          <button class="action-btn warn" id="detail-report-btn">举报帖子</button>
+          ${p.is_mine ? `<button class="action-btn warn" id="detail-delete-btn">删除帖子</button>` : ""}
+          ${state.isAdmin ? `<button class="action-btn warn" id="detail-admin-delete-btn">管理删帖</button>` : ""}
+          ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" id="detail-ban-author-btn">禁言作者</button>` : ""}
         </div>
       </div>
       <div class="section-header-row">

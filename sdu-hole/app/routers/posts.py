@@ -25,6 +25,9 @@ from app.services.moderation import log_moderation_hit
 
 router = APIRouter(prefix="/api/posts", tags=["帖子"])
 
+HOT_LIKE_WEIGHT = 2
+HOT_COMMENT_WEIGHT = 3
+
 VALID_TAGS = [
     "课程评价", "校园活动", "美食推荐", "游玩推荐",
     "生活吐槽", "求助", "表白墙", "二手交易", "考研交流", "失物招领", "公告",
@@ -140,7 +143,8 @@ async def list_posts(
         query = query.join(Favorite, Favorite.post_id == Post.id).where(Favorite.user_id == user.id)
 
     if order == "hot":
-        query = query.order_by(desc(Post.like_count))
+        hot_score = (Post.like_count * HOT_LIKE_WEIGHT) + (Post.comment_count * HOT_COMMENT_WEIGHT)
+        query = query.order_by(desc(hot_score), desc(Post.created_at))
     else:
         query = query.order_by(desc(Post.created_at))
 
