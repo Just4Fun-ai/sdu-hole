@@ -345,11 +345,12 @@
   }
   .char-counter { text-align:right; font-size:12px; color:var(--text3); margin-top:4px; }
   .modal-note { text-align:center; font-size:12px; color:var(--text3); margin-top:14px; }
-  .agreement-modal-content { max-width:860px; max-height:88vh; }
+  .agreement-modal-content { max-width:min(1080px, 96vw); max-height:92vh; }
   .agreement-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
   .agreement-col { border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
   .agreement-col-head { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-size:13px; border-bottom:1px solid var(--border-light); color:var(--text2); }
-  .agreement-frame { width:100%; height:320px; border:none; background:#fff; }
+  .agreement-frame { width:100%; height:min(62vh, 680px); border:none; background:#fff; }
+  #legal-doc-body .agreement-frame { height:min(72vh, 780px); }
   .agreement-status { font-size:12px; color:var(--text3); }
   .agreement-status.done { color:var(--accent); font-weight:600; }
   .agreement-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:10px; }
