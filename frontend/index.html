@@ -545,6 +545,21 @@
     border:1px solid rgba(255,255,255,.35);
   }
   .mobile-nav-dot { width:7px; height:7px; border-radius:999px; background:var(--accent); display:inline-block; }
+  .mobile-nav-badge {
+    display:inline-flex;
+    min-width:16px;
+    height:16px;
+    padding:0 5px;
+    margin-left:4px;
+    border-radius:999px;
+    background:var(--accent);
+    color:#fff;
+    font-size:10px;
+    font-weight:700;
+    align-items:center;
+    justify-content:center;
+    line-height:1;
+  }
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
     border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
@@ -1843,13 +1858,16 @@ async function submitBindNickname() {
 
 // ---- FEED ----
 function renderMobileNav(active = "feed") {
+  const badge = state.unreadNoticeCount > 0
+    ? `<span class="mobile-nav-badge">${Math.min(state.unreadNoticeCount, 99)}</span>`
+    : "";
   return `
     <div class="mobile-nav">
       <div class="mobile-nav-wrap">
         <button class="mobile-nav-btn ${active==="feed"?"active":""}" id="mnav-home">首页</button>
         <button class="mobile-nav-btn center" id="mnav-new">✏️</button>
         <button class="mobile-nav-btn ${active==="me"?"active":""}" id="mnav-me">
-          我的${state.unreadNoticeCount > 0 ? `<span class="mobile-nav-dot"></span>` : ""}
+          我的${badge}
         </button>
       </div>
     </div>
@@ -1962,8 +1980,8 @@ function meDisplayName() {
 function renderMe() {
   const tabs = [
     { key: "posts", label: "帖子" },
-    { key: "favorites", label: "收藏" },
     { key: "messages", label: "消息" },
+    { key: "favorites", label: "收藏" },
     { key: "appeals", label: "申诉" },
   ];
   const tabHtml = tabs.map(t => {
@@ -1994,9 +2012,6 @@ function renderMe() {
             <div class="logo-sm"><span class="brand-glyph" style="font-size:17px">我</span></div>
             <span class="logo-text">我的主页</span>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn-outline" id="btn-back-feed">返回</button>
-          </div>
         </div>
       </div>
 
@@ -2024,16 +2039,8 @@ function renderMe() {
           ${state.isAdmin ? `<button class="btn-outline" id="btn-me-admin">管理面板</button>` : ""}
           <button class="btn-outline" id="btn-me-logout">退出登录</button>
         </div>
-        <div class="section-header-row">
-          <div class="me-tab-head">
-            <div class="section-title" style="border:none;margin:0;padding:0">${meTabTitle()}</div>
-            <div style="display:flex;gap:8px;align-items:center">
-              ${state.meTab === "appeals" ? `<button class="btn-outline" id="btn-me-open-appeal">发起申诉</button>` : ""}
-              <button class="btn-outline" id="btn-me-refresh">刷新</button>
-            </div>
-          </div>
-        </div>
         <div class="tab-bar" style="margin:0 0 8px 0">${tabHtml}</div>
+        ${state.meTab === "appeals" ? `<div style="display:flex;justify-content:flex-end;margin:0 0 8px"><button class="btn-outline" id="btn-me-open-appeal">发起申诉</button></div>` : ""}
         <div id="me-content-list">${contentHtml}</div>
       </div>
       <div style="height:80px"></div>
@@ -2077,34 +2084,10 @@ function openMePage() {
 }
 
 function bindMe() {
-  const backBtn = document.getElementById("btn-back-feed");
-  if (backBtn) {
-    backBtn.addEventListener("click", () => {
-      const ctx = state.meBackCtx;
-      state.meBackCtx = null;
-      if (ctx?.page === "detail" && ctx.selectedPost?.id) {
-        state.page = "detail";
-        state.selectedPost = ctx.selectedPost;
-        state.detailOnlyAuthor = !!ctx.detailOnlyAuthor;
-        syncPostQuery(ctx.selectedPost.id);
-      } else {
-        state.page = "feed";
-        state.selectedPost = null;
-        state.detailOnlyAuthor = false;
-        syncPostQuery(null);
-        state.feedDirty = true;
-      }
-      render();
-    });
-  }
   document.getElementById("btn-me-block")?.addEventListener("click", showBlockSettings);
   document.getElementById("btn-me-admin")?.addEventListener("click", showAdminPanel);
   document.getElementById("btn-me-open-appeal")?.addEventListener("click", showAppealCenter);
   document.getElementById("btn-empty-open-appeal")?.addEventListener("click", showAppealCenter);
-  document.getElementById("btn-me-refresh")?.addEventListener("click", () => {
-    state.meLoading = true;
-    render();
-  });
   document.getElementById("btn-me-logout")?.addEventListener("click", () => {
     state.token = "";
     state.isAdmin = false;
@@ -2147,10 +2130,44 @@ function bindMe() {
       const tab = el.dataset.meTab;
       if (!tab || tab === state.meTab) return;
       state.meTab = tab;
+      if (tab === "messages") markNotificationsRead();
       render();
     });
   });
+  if (state.meTab === "messages") markNotificationsRead();
+  bindMePullRefresh();
   bindMobileNav();
+}
+
+function bindMePullRefresh() {
+  const content = document.getElementById("me-content-list");
+  if (!content || content.dataset.pullBound === "1") return;
+  content.dataset.pullBound = "1";
+  let startY = 0;
+  let pulling = false;
+  content.addEventListener("touchstart", (e) => {
+    if (!e.touches?.length) return;
+    if ((window.scrollY || 0) > 4) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+  content.addEventListener("touchmove", (e) => {
+    if (!pulling || !e.touches?.length) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 90) {
+      pulling = false;
+      state.meLoading = true;
+      render();
+      showToast("已刷新");
+    }
+  }, { passive: true });
+  content.addEventListener("touchend", () => { pulling = false; }, { passive: true });
+}
+
+function markNotificationsRead() {
+  localStorage.setItem("sdu_notice_read_at", String(Date.now()));
+  state.unreadNoticeCount = 0;
+  updateNoticeBadges();
 }
 
 function bindTagBarWheelScroll() {
@@ -2633,7 +2650,7 @@ function updateNoticeBadges() {
   }
   const mNavMe = document.getElementById("mnav-me");
   if (mNavMe) {
-    mNavMe.innerHTML = `我的${state.unreadNoticeCount > 0 ? `<span class="mobile-nav-dot"></span>` : ""}`;
+    mNavMe.innerHTML = `我的${state.unreadNoticeCount > 0 ? `<span class="mobile-nav-badge">${Math.min(state.unreadNoticeCount, 99)}</span>` : ""}`;
   }
   const msgTab = document.querySelector('[data-me-tab="messages"]');
   if (msgTab) {
