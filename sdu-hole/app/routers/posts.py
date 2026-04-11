@@ -181,6 +181,14 @@ async def list_posts(
         )
     )
     favorited_ids = set(favorited_result.scalars().all())
+    favorite_count_map = {}
+    if post_ids:
+        fc_result = await db.execute(
+            select(Favorite.post_id, func.count(Favorite.id))
+            .where(Favorite.post_id.in_(post_ids))
+            .group_by(Favorite.post_id)
+        )
+        favorite_count_map = {pid: int(cnt or 0) for pid, cnt in fc_result.all()}
     images_map = await get_post_images_map(db, post_ids)
 
     return [
@@ -191,6 +199,7 @@ async def list_posts(
             tag=p.tag,
             like_count=p.like_count,
             comment_count=p.comment_count,
+            favorite_count=favorite_count_map.get(p.id, 0),
             created_at=p.created_at,
             is_liked=p.id in liked_ids,
             is_mine=p.user_id == user.id,
@@ -232,6 +241,14 @@ async def list_announcements(
             )
         )
         liked_ids = set(liked_result.scalars().all())
+    favorite_count_map = {}
+    if post_ids:
+        fc_result = await db.execute(
+            select(Favorite.post_id, func.count(Favorite.id))
+            .where(Favorite.post_id.in_(post_ids))
+            .group_by(Favorite.post_id)
+        )
+        favorite_count_map = {pid: int(cnt or 0) for pid, cnt in fc_result.all()}
 
     return [
         PostResponse(
@@ -241,6 +258,7 @@ async def list_announcements(
             tag=p.tag,
             like_count=p.like_count,
             comment_count=p.comment_count,
+            favorite_count=favorite_count_map.get(p.id, 0),
             created_at=p.created_at,
             is_liked=p.id in liked_ids,
             is_mine=p.user_id == user.id,
@@ -391,6 +409,7 @@ async def create_post(
         tag=post.tag,
         like_count=0,
         comment_count=0,
+        favorite_count=0,
         created_at=post.created_at,
         is_liked=False,
         is_mine=True,
@@ -419,6 +438,10 @@ async def get_post(
     favored = await db.execute(
         select(Favorite).where(Favorite.user_id == user.id, Favorite.post_id == post_id)
     )
+    fav_count_result = await db.execute(
+        select(func.count(Favorite.id)).where(Favorite.post_id == post_id)
+    )
+    fav_count = int(fav_count_result.scalar_one() or 0)
     img_result = await db.execute(
         select(UploadedImage).where(UploadedImage.post_id == post_id, UploadedImage.is_used == True)
     )
@@ -426,7 +449,7 @@ async def get_post(
 
     return PostResponse(
         id=post.id, anon_name=normalize_display_name(post.anon_name, f"同学{post.user_id}"), content=post.content,
-        tag=post.tag, like_count=post.like_count, comment_count=post.comment_count,
+        tag=post.tag, like_count=post.like_count, comment_count=post.comment_count, favorite_count=fav_count,
         created_at=post.created_at, is_liked=is_liked, is_mine=post.user_id == user.id,
         is_favorited=favored.scalar_one_or_none() is not None,
         image_urls=image_urls,
@@ -480,10 +503,13 @@ async def toggle_favorite(
     existing = fav_result.scalar_one_or_none()
     if existing:
         await db.delete(existing)
-        return {"favorited": False}
+        count_result = await db.execute(select(func.count(Favorite.id)).where(Favorite.post_id == post_id))
+        return {"favorited": False, "favorite_count": int(count_result.scalar_one() or 0)}
 
     db.add(Favorite(user_id=user.id, post_id=post_id))
-    return {"favorited": True}
+    await db.flush()
+    count_result = await db.execute(select(func.count(Favorite.id)).where(Favorite.post_id == post_id))
+    return {"favorited": True, "favorite_count": int(count_result.scalar_one() or 0)}
 
 
 @router.delete("/{post_id}", summary="删除自己的帖子")

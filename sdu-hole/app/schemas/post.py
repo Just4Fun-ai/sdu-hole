@@ -16,6 +16,7 @@ class PostResponse(BaseModel):
     tag: str
     like_count: int
     comment_count: int
+    favorite_count: int = 0
     created_at: datetime
     is_liked: bool = False
     is_mine: bool = False
