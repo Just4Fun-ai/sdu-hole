@@ -17,7 +17,14 @@ from app.models.user import User
 security_scheme = HTTPBearer()
 
 ALGORITHM = "HS256"
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 首选 Argon2id；兼容历史 bcrypt 哈希，登录时可平滑验证旧密码
+pwd_context = CryptContext(
+    schemes=["argon2", "bcrypt"],
+    deprecated="auto",
+    argon2__memory_cost=19456,  # 19 MiB (OWASP 推荐基线之一)
+    argon2__time_cost=2,
+    argon2__parallelism=1,
+)
 
 
 def hash_student_id(student_id: str) -> str:

@@ -46,6 +46,20 @@ _verify_block_until: dict[str, float] = {}
 _password_fail_hits: dict[str, list[float]] = {}
 _password_block_until: dict[str, float] = {}
 
+_COMMON_WEAK_PASSWORDS = {
+    "123456",
+    "12345678",
+    "123456789",
+    "123123",
+    "111111",
+    "000000",
+    "password",
+    "qwerty",
+    "abc123",
+    "admin",
+    "iloveyou",
+}
+
 
 def _extract_client_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for")
@@ -66,6 +80,17 @@ def _prune_hits(store: dict[str, list[float]], key: str, window_seconds: int, no
     else:
         store.pop(key, None)
     return kept
+
+
+def _validate_password_policy(password: str):
+    if password is None:
+        raise HTTPException(status_code=400, detail="密码不能为空")
+    if len(password) < 6 or len(password) > 32:
+        raise HTTPException(status_code=400, detail="密码长度需为 6-32 位")
+    if any(ch.isspace() for ch in password):
+        raise HTTPException(status_code=400, detail="密码不能包含空白字符")
+    if password.lower() in _COMMON_WEAK_PASSWORDS:
+        raise HTTPException(status_code=400, detail="密码过于简单，请更换更安全的密码")
 
 
 @router.get("/random-nickname", response_model=RandomNicknameResponse, summary="生成随机匿名昵称")
@@ -220,8 +245,10 @@ async def password_login(req: PasswordLoginRequest, request: Request, db: AsyncS
     now = time.time()
     if not sid.isdigit() or len(sid) < 6 or len(sid) > 14:
         raise HTTPException(status_code=400, detail="学号格式不正确，请输入6-14位数字学号")
-    if not req.password or len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    if not req.password:
+        raise HTTPException(status_code=400, detail="请输入密码")
+    if len(req.password) < 6 or len(req.password) > 32:
+        raise HTTPException(status_code=400, detail="密码长度需为 6-32 位")
 
     sid_hash = hash_student_id(sid)
     result = await db.execute(select(User).where(User.student_id_hash == sid_hash))
@@ -273,12 +300,13 @@ async def set_password(
     req: SetPasswordRequest,
     user: User = Depends(get_current_user),
 ):
-    pwd = (req.password or "").strip()
-    cpwd = (req.confirm_password or "").strip()
-    if len(pwd) < 6 or len(pwd) > 64:
-        raise HTTPException(status_code=400, detail="密码长度需为 6-64 位")
+    pwd = req.password or ""
+    cpwd = req.confirm_password or ""
+    _validate_password_policy(pwd)
     if pwd != cpwd:
         raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    if user.password_hash and verify_password(pwd, user.password_hash):
+        raise HTTPException(status_code=400, detail="新密码不能与旧密码相同")
     user.password_hash = hash_password(pwd)
     return {"message": "密码设置成功"}
 

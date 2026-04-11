@@ -1048,6 +1048,15 @@ function formatAuthErrorMessage(raw) {
   return msg;
 }
 
+function validatePasswordPolicyClient(password) {
+  const pwd = String(password || "");
+  if (pwd.length < 6 || pwd.length > 32) return "密码长度需为 6-32 位";
+  if (/\s/.test(pwd)) return "密码不能包含空白字符";
+  const weak = new Set(["123456","12345678","123456789","123123","111111","000000","password","qwerty","abc123","admin","iloveyou"]);
+  if (weak.has(pwd.toLowerCase())) return "密码过于简单，请更换更安全的密码";
+  return "";
+}
+
 // ============================================================
 // Render
 // ============================================================
@@ -1238,7 +1247,7 @@ function renderLogin() {
             <input class="form-input" id="sid" placeholder="请输入你的学号" value="${loginStudentId}" maxlength="14">
             ${isPwd ? `
               <label class="form-label" style="margin-top:8px">密码</label>
-              <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="64">
+              <input class="form-input" id="pwd" type="password" placeholder="请输入密码（首次请用验证码登录后设置）" value="${escapeAttr(loginPassword)}" maxlength="32">
               <div class="form-hint">💡 首次登录请切换到“验证码登录”，验证后设置密码</div>
             ` : `
               ${emailPreview}
@@ -1255,7 +1264,7 @@ function renderLogin() {
           </label>
           <div id="login-error"></div>
           ${isPwd
-            ? `<button class="btn-primary" id="btn-password-login" ${(loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
+            ? `<button class="btn-primary" id="btn-password-login" ${(loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
             : `<button class="btn-primary" id="btn-send" ${(loginStudentId.length < 6 || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>`
           }
           <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
@@ -1317,7 +1326,7 @@ function bindLogin() {
     const verifyBtn = document.getElementById("btn-verify");
     if (verifyBtn) verifyBtn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
     const pwdBtn = document.getElementById("btn-password-login");
-    if (pwdBtn) pwdBtn.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
+    if (pwdBtn) pwdBtn.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
   };
   if (agree) {
     agree.addEventListener("click", (e) => {
@@ -1349,7 +1358,7 @@ function bindLogin() {
       loginStudentId = sid.value.replace(/\D/g,"");
       sid.value = loginStudentId;
       if (btnSend) btnSend.disabled = loginStudentId.length < 6 || !loginAgreementAccepted;
-      if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
+      if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
       // update email preview
       const parent = sid.parentElement;
       let ep = parent.querySelector(".email-preview");
@@ -1367,7 +1376,7 @@ function bindLogin() {
     if (pwd) {
       pwd.addEventListener("input", () => {
         loginPassword = pwd.value || "";
-        if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || loginPassword.length < 6 || !loginAgreementAccepted;
+        if (btnPwd) btnPwd.disabled = loginStudentId.length < 6 || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted;
       });
       pwd.addEventListener("keydown", e => { if(e.key==="Enter" && btnPwd) btnPwd.click(); });
     }
@@ -1464,6 +1473,11 @@ async function passwordLogin() {
   }
   const errEl = document.getElementById("login-error");
   const btn = document.getElementById("btn-password-login");
+  const pwdErr = validatePasswordPolicyClient(loginPassword);
+  if (pwdErr) {
+    if (errEl) errEl.innerHTML = `<div class="form-error">${pwdErr}</div>`;
+    return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = "登录中..."; }
   if (errEl) errEl.innerHTML = "";
   try {
@@ -1498,12 +1512,12 @@ function renderSetPassword() {
           <div class="login-sub">首次登录成功，请设置密码（下次可直接账号密码登录）</div>
         </div>
         <label class="form-label">新密码</label>
-        <input class="form-input" id="set-pwd-1" type="password" maxlength="64" placeholder="请输入 6-64 位密码" value="${escapeAttr(setPwd1)}">
+        <input class="form-input" id="set-pwd-1" type="password" maxlength="32" placeholder="请输入 6-32 位密码" value="${escapeAttr(setPwd1)}">
         <label class="form-label" style="margin-top:8px">确认密码</label>
-        <input class="form-input" id="set-pwd-2" type="password" maxlength="64" placeholder="请再次输入密码" value="${escapeAttr(setPwd2)}">
-        <div class="form-hint">💡 建议使用字母+数字组合，方便记忆且更安全</div>
+        <input class="form-input" id="set-pwd-2" type="password" maxlength="32" placeholder="请再次输入密码" value="${escapeAttr(setPwd2)}">
+        <div class="form-hint">💡 密码规则：6-32位，不含空格，避免弱口令</div>
         <div id="set-pwd-error"></div>
-        <button class="btn-primary" id="btn-set-pwd" ${(setPwd1.length < 6 || setPwd2.length < 6) ? "disabled" : ""}>保存密码并进入树洞</button>
+        <button class="btn-primary" id="btn-set-pwd" ${((!!validatePasswordPolicyClient(setPwd1)) || setPwd2.length < 6 || setPwd1 !== setPwd2) ? "disabled" : ""}>保存密码并进入树洞</button>
       </div>
     </div>`;
 }
@@ -1516,7 +1530,7 @@ function bindSetPassword() {
   const sync = () => {
     setPwd1 = p1.value || "";
     setPwd2 = p2.value || "";
-    btn.disabled = setPwd1.length < 6 || setPwd2.length < 6;
+    btn.disabled = !!validatePasswordPolicyClient(setPwd1) || setPwd2.length < 6 || setPwd1 !== setPwd2;
   };
   p1.addEventListener("input", sync);
   p2.addEventListener("input", sync);
@@ -1529,6 +1543,19 @@ async function submitSetPassword() {
   const btn = document.getElementById("btn-set-pwd");
   if (!btn) return;
   errEl.innerHTML = "";
+  const pwdErr = validatePasswordPolicyClient(setPwd1);
+  if (pwdErr) {
+    errEl.innerHTML = `<div class="form-error">${pwdErr}</div>`;
+    btn.disabled = false;
+    btn.textContent = "保存密码并进入树洞";
+    return;
+  }
+  if (setPwd1 !== setPwd2) {
+    errEl.innerHTML = `<div class="form-error">两次输入的密码不一致</div>`;
+    btn.disabled = false;
+    btn.textContent = "保存密码并进入树洞";
+    return;
+  }
   btn.disabled = true;
   btn.textContent = "保存中...";
   try {
