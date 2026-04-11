@@ -95,18 +95,26 @@ fi
 
 # Sync frontend static files for Nginx
 sudo mkdir -p /var/www/sdu-hole
-if [ -f '${APP_DIR}/sdu-hole.html' ]; then
+if [ -f '${APP_DIR}/frontend/index.html' ]; then
+  sudo cp '${APP_DIR}/frontend/index.html' /var/www/sdu-hole/index.html
+elif [ -f '${APP_DIR}/sdu-hole.html' ]; then
   sudo cp '${APP_DIR}/sdu-hole.html' /var/www/sdu-hole/index.html
 fi
-if [ -f '${APP_DIR}/deploy-config.js' ]; then
+if [ -f '${APP_DIR}/frontend/deploy-config.js' ]; then
+  sudo cp '${APP_DIR}/frontend/deploy-config.js' /var/www/sdu-hole/deploy-config.js
+elif [ -f '${APP_DIR}/deploy-config.js' ]; then
   sudo cp '${APP_DIR}/deploy-config.js' /var/www/sdu-hole/deploy-config.js
 fi
 # Force production-safe API base to same-origin to avoid loopback outages
 echo 'window.__SDU_API_BASE__ = "";' | sudo tee /var/www/sdu-hole/deploy-config.js >/dev/null
-if [ -f '${APP_DIR}/user-agreement.html' ]; then
+if [ -f '${APP_DIR}/frontend/user-agreement.html' ]; then
+  sudo cp '${APP_DIR}/frontend/user-agreement.html' /var/www/sdu-hole/user-agreement.html
+elif [ -f '${APP_DIR}/user-agreement.html' ]; then
   sudo cp '${APP_DIR}/user-agreement.html' /var/www/sdu-hole/user-agreement.html
 fi
-if [ -f '${APP_DIR}/privacy-policy.html' ]; then
+if [ -f '${APP_DIR}/frontend/privacy-policy.html' ]; then
+  sudo cp '${APP_DIR}/frontend/privacy-policy.html' /var/www/sdu-hole/privacy-policy.html
+elif [ -f '${APP_DIR}/privacy-policy.html' ]; then
   sudo cp '${APP_DIR}/privacy-policy.html' /var/www/sdu-hole/privacy-policy.html
 fi
 

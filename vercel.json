@@ -1,5 +1,5 @@
 {
   "routes": [
-    { "src": "/", "dest": "/sdu-hole.html" }
+    { "src": "/", "dest": "/frontend/index.html" }
   ]
 }

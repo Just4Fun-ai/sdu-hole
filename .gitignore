@@ -1,4 +1,26 @@
 .env
 *.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+._*
+
+# Local runtime data
+/sdu-hole/.env
+/sdu-hole/sdu_hole.db
+/sdu-hole/app/data/uploads/
+
+# Local backups
+/opt/
