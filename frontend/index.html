@@ -723,9 +723,10 @@ let state = {
   page: "feed",        // login | bind | set_password | feed | me | detail
   posts: [],
   mePosts: [],
+  meLikedPosts: [],
   meFavorites: [],
   meAppeals: [],
-  meTab: "posts", // posts | favorites | messages | appeals
+  meTab: "posts", // posts | messages | liked | favorites | appeals
   meLoading: false,
   meProfile: { nickname: "匿名同学", is_admin: false },
   selectedPost: null,
@@ -2000,6 +2001,7 @@ function meAppealListHTML(rows) {
 }
 
 function meTabTitle() {
+  if (state.meTab === "liked") return "我的点赞";
   if (state.meTab === "favorites") return "我的收藏";
   if (state.meTab === "messages") return "我的消息";
   if (state.meTab === "appeals") return "申诉记录";
@@ -2015,6 +2017,7 @@ function renderMe() {
   const tabs = [
     { key: "posts", label: "帖子" },
     { key: "messages", label: "消息" },
+    { key: "liked", label: "点赞" },
     { key: "favorites", label: "收藏" },
     { key: "appeals", label: "申诉" },
   ];
@@ -2027,6 +2030,8 @@ function renderMe() {
   let contentHtml = "";
   if (state.meLoading) {
     contentHtml = `<div class="empty-state" style="padding:18px 10px">加载中...</div>`;
+  } else if (state.meTab === "liked") {
+    contentHtml = mePostListHTML(state.meLikedPosts, "你还没有点赞帖子");
   } else if (state.meTab === "favorites") {
     contentHtml = mePostListHTML(state.meFavorites, "你还没有收藏帖子");
   } else if (state.meTab === "messages") {
@@ -2086,13 +2091,15 @@ function renderMe() {
 async function loadMeData() {
   try {
     await refreshNotifications();
-    const [mine, favs, appeals, me] = await Promise.all([
+    const [mine, likes, favs, appeals, me] = await Promise.all([
       apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
+      apiFetch("/api/posts/?liked=true&order=new&page=1&size=20"),
       apiFetch("/api/posts/?favorited=true&order=new&page=1&size=20"),
       apiFetch("/api/auth/appeals?page=1&size=20").catch(() => []),
       apiFetch("/api/auth/me").catch(() => null),
     ]);
     state.mePosts = mine || [];
+    state.meLikedPosts = likes || [];
     state.meFavorites = favs || [];
     state.meAppeals = appeals || [];
     if (me) {
@@ -2127,6 +2134,7 @@ function bindMe() {
     state.isAdmin = false;
     state.posts = [];
     state.mePosts = [];
+    state.meLikedPosts = [];
     state.meFavorites = [];
     state.announcements = [];
     state.notifications = [];

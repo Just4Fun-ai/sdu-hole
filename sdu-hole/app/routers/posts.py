@@ -6,7 +6,7 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from fastapi.responses import FileResponse
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image, UnidentifiedImageError
 
@@ -127,6 +127,7 @@ async def list_posts(
     order: str = Query("new", description="排序: new=最新, hot=最热"),
     mine: bool = Query(False, description="仅看我的帖子"),
     favorited: bool = Query(False, description="仅看收藏"),
+    liked: bool = Query(False, description="仅看我点赞过的帖子"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -143,6 +144,11 @@ async def list_posts(
         base_query = base_query.where(Post.user_id == user.id)
     if favorited:
         base_query = base_query.join(Favorite, Favorite.post_id == Post.id).where(Favorite.user_id == user.id)
+    if liked:
+        base_query = base_query.join(
+            Like,
+            and_(Like.target_type == "post", Like.target_id == Post.id),
+        ).where(Like.user_id == user.id)
 
     query = base_query
 
