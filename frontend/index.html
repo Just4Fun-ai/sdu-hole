@@ -618,13 +618,13 @@
 
   .hidden { display:none !important; }
   .legal-inline-top {
-    margin:0 0 10px;
     color:var(--text3);
     font-size:12px;
     display:flex;
     align-items:center;
     gap:8px;
     flex-wrap:wrap;
+    margin-left:auto;
   }
   .legal-inline-top a {
     color:#7d7a77;
@@ -650,7 +650,7 @@
       border-radius:14px;
       font-size:20px;
     }
-    .legal-inline-top { font-size:11px; margin-bottom:8px; }
+    .legal-inline-top { font-size:11px; gap:6px; }
   }
 </style>
 </head>
@@ -2033,13 +2033,13 @@ function renderMe() {
             <div class="logo-sm"><span class="brand-glyph" style="font-size:17px">山</span></div>
             <span class="logo-text">我的主页</span>
           </div>
+          <div class="legal-inline-top">
+            <span>协议</span>
+            <a href="./user-agreement.html" data-open-legal="ua">用户协议</a>
+            <span>|</span>
+            <a href="./privacy-policy.html" data-open-legal="pp">隐私政策</a>
+          </div>
         </div>
-      </div>
-      <div class="legal-inline-top">
-        <span>协议</span>
-        <a href="./user-agreement.html" data-open-legal="ua">用户协议</a>
-        <span>|</span>
-        <a href="./privacy-policy.html" data-open-legal="pp">隐私政策</a>
       </div>
 
       <div class="me-hero">
