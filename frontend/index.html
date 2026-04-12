@@ -628,6 +628,35 @@
     padding:8px 10px; display:flex; align-items:center; gap:8px;
     font-size:12px; color:var(--text2); white-space:nowrap;
     max-width:calc(100vw - 110px); overflow-x:auto;
+    transition:all .2s ease;
+  }
+  .legal-fab-toggle {
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.96);
+    color:var(--text2);
+    border-radius:999px;
+    padding:5px 10px;
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    white-space:nowrap;
+    line-height:1;
+  }
+  .legal-fab-toggle:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+  .legal-fab-body { display:flex; align-items:center; gap:8px; }
+  .legal-fab.collapsed {
+    left:8px;
+    background:transparent;
+    border:none;
+    box-shadow:none;
+    backdrop-filter:none;
+    padding:0;
+    max-width:none;
+    overflow:visible;
+  }
+  .legal-fab.collapsed .legal-fab-body { display:none; }
+  .legal-fab.collapsed .legal-fab-toggle {
+    box-shadow:0 6px 18px rgba(0,0,0,.09);
   }
   .legal-fab-close {
     margin-left:4px;
@@ -662,6 +691,7 @@
       font-size:20px;
     }
     .legal-fab { left:10px; bottom:82px; font-size:11px; padding:7px 9px; max-width:calc(100vw - 96px); }
+    .legal-fab.collapsed { left:6px; bottom:82px; }
   }
 </style>
 </head>
@@ -691,11 +721,13 @@
 
 <div id="app"></div>
 <div class="legal-fab" id="legal-fab">
-  <span>协议</span>
-  <a href="./user-agreement.html" data-open-legal="ua">用户协议</a>
-  <span>|</span>
-  <a href="./privacy-policy.html" data-open-legal="pp">隐私政策</a>
-  <button class="legal-fab-close" id="legal-fab-close" title="关闭">✕</button>
+  <button class="legal-fab-toggle" id="legal-fab-toggle" title="收起/展开协议入口">协议</button>
+  <div class="legal-fab-body" id="legal-fab-body">
+    <a href="./user-agreement.html" data-open-legal="ua">用户协议</a>
+    <span>|</span>
+    <a href="./privacy-policy.html" data-open-legal="pp">隐私政策</a>
+    <button class="legal-fab-close" id="legal-fab-close" title="关闭">✕</button>
+  </div>
 </div>
 
 <script>
@@ -790,14 +822,61 @@ function applyTouchLayoutClass() {
 function initLegalFab() {
   const fab = document.getElementById("legal-fab");
   const closeBtn = document.getElementById("legal-fab-close");
-  if (!fab || !closeBtn) return;
+  const toggleBtn = document.getElementById("legal-fab-toggle");
+  if (!fab || !closeBtn || !toggleBtn) return;
+  if (fab.dataset.bound === "1") {
+    if (typeof window.__syncLegalFab === "function") window.__syncLegalFab();
+    return;
+  }
+
+  const shouldAutoCollapse = () => {
+    const hasCommentBar = !!document.querySelector(".comment-bar");
+    const active = document.activeElement;
+    const inCommentInput = !!(active && (
+      active.id === "comment-input" ||
+      active.classList?.contains("comment-input")
+    ));
+    return hasCommentBar || inCommentInput;
+  };
+
+  const syncCollapsed = () => {
+    if (fab.classList.contains("hidden")) return;
+    const pinnedOpen = fab.dataset.pinnedOpen === "1";
+    if (shouldAutoCollapse() && !pinnedOpen) {
+      fab.classList.add("collapsed");
+    } else if (!shouldAutoCollapse()) {
+      fab.classList.remove("collapsed");
+      fab.dataset.pinnedOpen = "0";
+    }
+  };
+  window.__syncLegalFab = syncCollapsed;
+
   if (sessionStorage.getItem("sdu_legal_fab_hidden") === "1") {
     fab.classList.add("hidden");
+    return;
   }
   closeBtn.addEventListener("click", () => {
     fab.classList.add("hidden");
     sessionStorage.setItem("sdu_legal_fab_hidden", "1");
   });
+  toggleBtn.addEventListener("click", () => {
+    if (fab.classList.contains("collapsed")) {
+      fab.classList.remove("collapsed");
+      fab.dataset.pinnedOpen = "1";
+    } else {
+      fab.classList.add("collapsed");
+      fab.dataset.pinnedOpen = "0";
+    }
+  });
+  window.addEventListener("resize", syncCollapsed);
+  document.addEventListener("focusin", syncCollapsed);
+  const appRoot = document.getElementById("app");
+  if (appRoot) {
+    const ob = new MutationObserver(() => syncCollapsed());
+    ob.observe(appRoot, { childList: true, subtree: true });
+  }
+  fab.dataset.bound = "1";
+  syncCollapsed();
 }
 
 function loadJSON(key, fallback) {
@@ -1281,6 +1360,7 @@ function render() {
       renderPostList();
     }
   }
+  if (typeof initLegalFab === "function") initLegalFab();
 }
 
 async function bootstrapAuth() {
