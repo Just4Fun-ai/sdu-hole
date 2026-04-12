@@ -437,7 +437,12 @@
   }
   .me-stat {
     text-align:left;
+    cursor:pointer;
+    border-radius:10px;
+    padding:2px 6px 4px;
+    transition:background .15s ease;
   }
+  .me-stat:hover { background:var(--bg); }
   .me-stat .num { font-size:20px; font-weight:700; color:#2f2b28; line-height:1; }
   .me-stat .label { font-size:11px; color:var(--text3); margin-top:5px; }
   .me-actions {
@@ -2066,9 +2071,9 @@ function renderMe() {
           ${state.isAdmin ? `<span class="me-badge">管理员</span>` : ""}
         </div>
         <div class="me-stats">
-          <div class="me-stat"><div class="num">${state.mePosts.length}</div><div class="label">我的帖子</div></div>
-          <div class="me-stat"><div class="num">${state.meFavorites.length}</div><div class="label">我的收藏</div></div>
-          <div class="me-stat"><div class="num">${state.unreadNoticeCount + pendingAppeals}</div><div class="label">待处理</div></div>
+          <div class="me-stat" data-me-stat-tab="posts"><div class="num">${state.mePosts.length}</div><div class="label">我的帖子</div></div>
+          <div class="me-stat" data-me-stat-tab="favorites"><div class="num">${state.meFavorites.length}</div><div class="label">我的收藏</div></div>
+          <div class="me-stat" data-me-stat-tab="${pendingAppeals > 0 ? "appeals" : "messages"}"><div class="num">${state.unreadNoticeCount + pendingAppeals}</div><div class="label">待处理</div></div>
         </div>
       </div>
 
@@ -2159,6 +2164,14 @@ function bindMe() {
   document.querySelectorAll("[data-me-tab]").forEach(el => {
     el.addEventListener("click", () => {
       const tab = el.dataset.meTab;
+      if (!tab || tab === state.meTab) return;
+      state.meTab = tab;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-me-stat-tab]").forEach(el => {
+    el.addEventListener("click", () => {
+      const tab = el.dataset.meStatTab;
       if (!tab || tab === state.meTab) return;
       state.meTab = tab;
       render();
