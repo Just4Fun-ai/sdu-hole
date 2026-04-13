@@ -2853,18 +2853,29 @@ function showNotificationDetail(notice) {
     alert(notice?.text || "暂无详情");
     return;
   }
+  const noticeId = String(notice?.id || "");
   root.innerHTML = `
     <div class="modal-overlay" id="notice-detail-overlay">
       <div class="modal-content" id="notice-detail-body" style="max-width:640px">
         <div class="modal-title"><span>消息详情</span><button class="modal-close" id="notice-detail-close">✕</button></div>
         <div style="font-size:14px;line-height:1.8">${escapeHTML(notice?.text || "")}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:8px">${timeAgo(notice?.created_at)}</div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <button class="btn-outline" id="notice-detail-delete" style="padding:5px 10px;font-size:12px;color:var(--danger);border-color:#fecaca">删除</button>
+        </div>
       </div>
     </div>`;
   const close = () => { root.innerHTML = ""; };
   document.getElementById("notice-detail-close")?.addEventListener("click", close);
   document.getElementById("notice-detail-overlay")?.addEventListener("click", (e) => { if (e.target.id === "notice-detail-overlay") close(); });
   document.getElementById("notice-detail-body")?.addEventListener("click", (e) => e.stopPropagation());
+  document.getElementById("notice-detail-delete")?.addEventListener("click", () => {
+    if (!noticeId) return;
+    deleteNotificationById(noticeId);
+    close();
+    if (state.page === "me" && state.meTab === "messages") render();
+    showToast("消息已删除");
+  });
 }
 
 async function showNotifications() {
