@@ -2133,7 +2133,7 @@ function renderMe() {
 
 async function loadMeData() {
   try {
-    await refreshNotifications();
+    await refreshNotifications(true);
     const [mine, likes, favs, appeals, me] = await Promise.all([
       apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
       apiFetch("/api/posts/?liked=true&order=new&page=1&size=20"),
@@ -2200,10 +2200,13 @@ function bindMe() {
   });
   bindMeNotificationActions();
   document.querySelectorAll("[data-me-tab]").forEach(el => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", async () => {
       const tab = el.dataset.meTab;
       if (!tab || tab === state.meTab) return;
       state.meTab = tab;
+      if (tab === "messages") {
+        await refreshNotifications(true);
+      }
       render();
     });
   });
@@ -2776,20 +2779,20 @@ function showBlockSettings() {
   });
 }
 
-async function refreshNotifications() {
+async function refreshNotifications(force = false) {
   const now = Date.now();
-  if (now - (state.lastNoticeRefreshAt || 0) < 30000) return;
+  if (!force && (now - (state.lastNoticeRefreshAt || 0) < 30000)) return;
   state.lastNoticeRefreshAt = now;
   try {
     const [mine, adminEvents] = await Promise.all([
-      apiFetch("/api/posts/?mine=true&order=new&page=1&size=20"),
+      apiFetch("/api/posts/?mine=true&order=new&page=1&size=50"),
       apiFetch("/api/auth/moderation-events?page=1&size=20").catch(() => []),
     ]);
     const items = [];
     for (const p of mine) {
       if (p.comment_count <= 0) continue;
       try {
-        const cs = await apiFetch(`/api/posts/${p.id}/comments?page=1&size=10`);
+        const cs = await apiFetch(`/api/posts/${p.id}/comments?page=1&size=50`);
         cs.forEach(c => {
           if (!c.is_author) {
             items.push({
