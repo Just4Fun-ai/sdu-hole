@@ -37,6 +37,18 @@
     to { opacity:1; transform:translateY(0) scale(1); }
   }
   @keyframes pulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.3);} }
+  @keyframes heartBurst {
+    0% { opacity:1; transform:translate(-50%,-50%) scale(0); }
+    30% { opacity:1; transform:translate(-50%,-50%) scale(1.3); }
+    60% { opacity:.8; transform:translate(-50%,-50%) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) scale(1.4); }
+  }
+  @keyframes btnPop { 0%{transform:scale(1);} 40%{transform:scale(1.28);} 100%{transform:scale(1);} }
+  @keyframes skeletonShimmer {
+    0% { background-position: -200px 0; }
+    100% { background-position: calc(200px + 100%) 0; }
+  }
+  @keyframes pullHint { from{opacity:0;transform:translateY(-8px);} to{opacity:1;transform:translateY(0);} }
 
   .container { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 
@@ -227,10 +239,36 @@
   }
 
   /* ---- Post Card ---- */
+  .dbl-heart {
+    position:absolute; top:50%; left:50%; pointer-events:none; z-index:10;
+    font-size:56px; animation:heartBurst .6s ease-out forwards;
+    filter:drop-shadow(0 2px 6px rgba(166,27,41,.35));
+  }
+  .action-btn.pop { animation:btnPop .3s ease-out; }
+  .skeleton-card {
+    background:var(--surface); border-radius:var(--rl); padding:18px 20px;
+    border:1px solid var(--border); animation:fadeUp .35s ease-out both;
+  }
+  .skeleton-line {
+    height:14px; border-radius:6px; margin-bottom:10px;
+    background:linear-gradient(90deg, var(--border-light) 25%, #f0ede9 50%, var(--border-light) 75%);
+    background-size:200px 100%;
+    animation:skeletonShimmer 1.4s ease-in-out infinite;
+  }
+  .skeleton-line.w60 { width:60%; }
+  .skeleton-line.w80 { width:80%; }
+  .skeleton-line.w40 { width:40%; }
+  .skeleton-line.short { height:12px; width:30%; }
+  .skeleton-avatar { width:30px; height:30px; border-radius:8px; background:var(--border-light); flex-shrink:0; }
+  .pull-indicator {
+    text-align:center; padding:12px 0; font-size:13px; color:var(--text3);
+    animation:pullHint .3s ease-out;
+  }
   .post-card {
     background:var(--surface); border-radius:var(--rl); padding:18px 20px;
     border:1px solid var(--border); cursor:pointer; transition:all .2s;
-    animation:fadeUp .35s ease-out both;
+    animation:fadeUp .35s ease-out both; position:relative; overflow:hidden;
+    -webkit-user-select:none; user-select:none;
   }
   .post-card:hover { box-shadow:var(--shadow-hover); border-color:var(--accent-border); }
   .post-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
@@ -2021,11 +2059,13 @@ function renderFeed() {
         <div class="meta">${formatHoleNo(topNotice.id, topNotice.created_at)} · ${timeAgo(topNotice.created_at)}</div>
       </div>` : ""}
       <div class="tag-bar">${tagPills}</div>
+      <div id="pull-indicator"></div>
       <div class="post-list" id="post-list">
-        <div class="empty-state"><div class="icon">🌳</div>加载中...</div>
+        ${skeletonCardsHTML(4)}
       </div>
-      <div class="load-more-wrap">
-        <button class="btn-outline" id="btn-load-more" style="display:${state.hasMorePosts ? "inline-block":"none"}">加载更多</button>
+      <div id="scroll-sentinel" style="height:1px"></div>
+      <div class="load-more-wrap" id="infinite-loading" style="display:none">
+        <div style="font-size:13px;color:var(--text3);padding:12px 0">加载中...</div>
       </div>
       <div style="height:80px"></div>
     </div>
@@ -2406,8 +2446,8 @@ function bindFeed() {
   if (meBtn) meBtn.addEventListener("click", openMePage);
   const announceBtn = document.getElementById("btn-announce");
   if (announceBtn) announceBtn.addEventListener("click", showAnnouncementModal);
-  const loadMoreBtn = document.getElementById("btn-load-more");
-  if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => loadPosts({ append: true }));
+  setupInfiniteScroll();
+  bindFeedPullRefresh();
   const topAnn = document.getElementById("feed-announcement");
   if (topAnn) topAnn.addEventListener("click", async () => {
     const id = parseInt(topAnn.dataset.id);
@@ -2522,13 +2562,11 @@ async function loadAnnouncements() {
 
 async function loadPosts(opts = { append: false }) {
   const list = document.getElementById("post-list");
-  const moreBtn = document.getElementById("btn-load-more");
+  const loadingEl = document.getElementById("infinite-loading");
   if (state.loadingPosts) return;
   state.loadingPosts = true;
-  if (moreBtn && opts.append) {
-    moreBtn.disabled = true;
-    moreBtn.textContent = "加载中...";
-  }
+  if (loadingEl && opts.append) loadingEl.style.display = "block";
+  if (!opts.append && list) list.innerHTML = skeletonCardsHTML(4);
   try {
     const params = new URLSearchParams({
       order: state.order,
@@ -2560,20 +2598,12 @@ async function loadPosts(opts = { append: false }) {
       }
     }
     renderPostList();
-    const more = document.getElementById("btn-load-more");
-    if (more) {
-      more.style.display = state.hasMorePosts ? "inline-block" : "none";
-      more.disabled = false;
-      more.textContent = "加载更多";
-    }
+    setupInfiniteScroll();
   } catch(e) {
-    list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
+    if (list) list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
   } finally {
     state.loadingPosts = false;
-    if (moreBtn && opts.append) {
-      moreBtn.disabled = false;
-      moreBtn.textContent = "加载更多";
-    }
+    if (loadingEl) loadingEl.style.display = "none";
   }
 }
 
@@ -2627,21 +2657,71 @@ function postContentPreview(post) {
   return escapeHTML(meta.body || post.content);
 }
 
-function bindPostListInteractions(list) {
-  list.querySelectorAll(".post-card").forEach(el => {
-    el.addEventListener("click", () => {
-      const id = parseInt(el.dataset.id);
-      const post = state.posts.find(p => p.id === id);
+function triggerHeartBurst(el) {
+  const heart = document.createElement("span");
+  heart.className = "dbl-heart";
+  heart.textContent = "❤️";
+  el.appendChild(heart);
+  heart.addEventListener("animationend", () => heart.remove());
+}
+
+function triggerBtnPop(btn) {
+  btn.classList.remove("pop");
+  void btn.offsetWidth;
+  btn.classList.add("pop");
+}
+
+const _dblTapState = new WeakMap();
+function bindDoubleTapLike(el, postId) {
+  el.addEventListener("click", (e) => {
+    // ignore clicks on action buttons/images
+    if (e.target.closest(".post-actions, .action-btn, [data-open-img], .expand-btn, .img-del")) return;
+    const now = Date.now();
+    const prev = _dblTapState.get(el) || 0;
+    _dblTapState.set(el, now);
+    if (now - prev < 320) {
+      // double tap
+      e.stopPropagation();
+      _dblTapState.set(el, 0);
+      const post = state.posts.find(p => p.id === postId);
+      if (!post) return;
+      triggerHeartBurst(el);
+      if (!post.is_liked) {
+        apiFetch(`/api/posts/${postId}/like`, { method: "POST" }).then(data => {
+          post.is_liked = data.liked;
+          post.like_count = data.like_count;
+          const btn = el.querySelector(`[data-like="${postId}"]`);
+          if (btn) {
+            btn.classList.toggle("liked", data.liked);
+            btn.innerHTML = (data.liked ? "❤️" : "🤍") + ` <span class="like-count">${data.like_count}</span>`;
+            triggerBtnPop(btn);
+          }
+        }).catch(() => {});
+      }
+      return;
+    }
+    // single tap - wait to confirm not double
+    setTimeout(() => {
+      if (_dblTapState.get(el) !== now) return; // a second tap happened
+      const post = state.posts.find(p => p.id === postId);
       if (!post) return;
       replyTargetCommentId = null;
       openDetailPage(post);
-    });
+    }, 330);
+  });
+}
+
+function bindPostListInteractions(list) {
+  list.querySelectorAll(".post-card").forEach(el => {
+    const id = parseInt(el.dataset.id);
+    bindDoubleTapLike(el, id);
   });
 
   list.querySelectorAll("[data-like]").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.like);
+      triggerBtnPop(btn);
       try {
         const data = await apiFetch(`/api/posts/${id}/like`, { method: "POST" });
         btn.classList.toggle("liked", data.liked);
@@ -2656,6 +2736,7 @@ function bindPostListInteractions(list) {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.fav);
+      triggerBtnPop(btn);
       try {
         const data = await apiFetch(`/api/posts/${id}/favorite`, { method: "POST" });
         const p = state.posts.find(x => x.id === id);
@@ -3231,6 +3312,73 @@ async function submitNewPost() {
   }
 }
 
+function skeletonCardsHTML(count = 4) {
+  return Array.from({length: count}, () => `
+    <div class="skeleton-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div class="skeleton-avatar"></div>
+        <div style="flex:1"><div class="skeleton-line w40" style="margin-bottom:6px"></div><div class="skeleton-line short"></div></div>
+      </div>
+      <div class="skeleton-line w80"></div>
+      <div class="skeleton-line w60"></div>
+      <div class="skeleton-line w40" style="margin-bottom:0"></div>
+    </div>
+  `).join("");
+}
+
+// ---- Infinite Scroll ----
+let _infiniteScrollObserver = null;
+function setupInfiniteScroll() {
+  if (_infiniteScrollObserver) _infiniteScrollObserver.disconnect();
+  const sentinel = document.getElementById("scroll-sentinel");
+  if (!sentinel) return;
+  _infiniteScrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && state.hasMorePosts && !state.loadingPosts) {
+      loadPosts({ append: true });
+    }
+  }, { rootMargin: "300px" });
+  _infiniteScrollObserver.observe(sentinel);
+}
+
+// ---- Pull to Refresh (feed) ----
+let _pullState = { startY: 0, pulling: false, triggered: false };
+function bindFeedPullRefresh() {
+  const container = document.querySelector(".container");
+  if (!container || container.dataset.pullBound === "1") return;
+  container.dataset.pullBound = "1";
+  const indicator = document.getElementById("pull-indicator");
+
+  container.addEventListener("touchstart", (e) => {
+    if (!e.touches?.length || (window.scrollY || 0) > 4) return;
+    _pullState = { startY: e.touches[0].clientY, pulling: true, triggered: false };
+  }, { passive: true });
+
+  container.addEventListener("touchmove", (e) => {
+    if (!_pullState.pulling || !e.touches?.length) return;
+    const dy = e.touches[0].clientY - _pullState.startY;
+    if (dy > 60 && !_pullState.triggered) {
+      _pullState.triggered = true;
+      if (indicator) {
+        indicator.innerHTML = `<div class="pull-indicator">松手刷新</div>`;
+      }
+    }
+    if (dy < 30 && indicator) indicator.innerHTML = "";
+  }, { passive: true });
+
+  container.addEventListener("touchend", () => {
+    const indicator = document.getElementById("pull-indicator");
+    if (_pullState.triggered) {
+      if (indicator) indicator.innerHTML = `<div class="pull-indicator">刷新中...</div>`;
+      resetAndLoadPosts();
+      refreshNotifications(true);
+      setTimeout(() => { if (indicator) indicator.innerHTML = ""; }, 1200);
+    } else {
+      if (indicator) indicator.innerHTML = "";
+    }
+    _pullState = { startY: 0, pulling: false, triggered: false };
+  }, { passive: true });
+}
+
 function renderPostList() {
   const list = document.getElementById("post-list");
   if (!list) return;
@@ -3492,6 +3640,7 @@ function bindDetail() {
   const favBtn = document.getElementById("detail-fav-btn");
   if (favBtn) {
     favBtn.addEventListener("click", async () => {
+      triggerBtnPop(favBtn);
       try {
         const data = await apiFetch(`/api/posts/${state.selectedPost.id}/favorite`, { method: "POST" });
         state.selectedPost.is_favorited = data.favorited;
@@ -3510,6 +3659,7 @@ function bindDetail() {
   const likeBtn = document.getElementById("detail-like-btn");
   if (likeBtn) {
     likeBtn.addEventListener("click", async () => {
+      triggerBtnPop(likeBtn);
       try {
         const data = await apiFetch(`/api/posts/${state.selectedPost.id}/like`, { method: "POST" });
         state.selectedPost.is_liked = data.liked;
@@ -3778,6 +3928,7 @@ function bindCommentActions() {
   list.querySelectorAll("[data-like-comment]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.likeComment);
+      triggerBtnPop(btn);
       try {
         const data = await apiFetch(`/api/posts/comments/${id}/like`, { method: "POST" });
         const c = state.comments.find(x => x.id === id);
