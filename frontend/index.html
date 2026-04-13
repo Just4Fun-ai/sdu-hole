@@ -3304,10 +3304,9 @@ function buildReplyPrefix(comment) {
 
 function stripLeadingQuotePrefix(text) {
   let out = String(text || "");
-  // 新版：全角前缀  【引用|昵称|摘要】
-  out = out.replace(/^【引用\|[^|]*\|[^|]*】\n?/g, "");
-  // 兼容旧版：半角前缀  [引用|昵称|摘要]
-  out = out.replace(/^\[引用\|[^|]*\|[^|]*\]\s*/g, "");
+  // 去掉前导引用片段（兼容历史格式，支持连环引用）
+  out = out.replace(/^(?:\s*[【\[]引用[^\]】]{0,120}[】\]]\s*)+/g, "");
+  out = out.replace(/^回复[^:：]{0,30}[:：]\s*/g, "");
   return out;
 }
 
@@ -3480,10 +3479,6 @@ function bindDetail() {
   const cancelReplyBtn = document.getElementById("btn-cancel-reply");
   if (cancelReplyBtn) {
     cancelReplyBtn.addEventListener("click", () => {
-      const input = document.getElementById("comment-input");
-      if (input && replyTargetPreview?.prefix && String(input.value || "").startsWith(replyTargetPreview.prefix)) {
-        input.value = String(input.value || "").slice(replyTargetPreview.prefix.length);
-      }
       replyTargetCommentId = null;
       replyTargetPreview = null;
       const hint = document.getElementById("reply-hint");
@@ -3662,6 +3657,8 @@ function renderCommentThreads() {
         </button>
         <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
         <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
+        ${c.is_mine ? `<button class="action-btn warn" data-delete-comment="${c.id}">🗑 删除</button>` : ""}
+        ${state.isAdmin && !c.is_mine ? `<button class="action-btn warn" data-admin-delete-comment="${c.id}">🛠 管理删评</button>` : ""}
       </div>
     </div>
   `;
@@ -3805,6 +3802,43 @@ function bindCommentActions() {
     });
   });
 
+  list.querySelectorAll("[data-delete-comment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.deleteComment);
+      if (!confirm("确认删除这条评论吗？")) return;
+      try {
+        const data = await apiFetch(`/api/posts/comments/${id}`, { method: "DELETE" });
+        const deletedCount = Math.max(1, Number(data?.deleted_count || 1));
+        await loadComments();
+        state.selectedPost.comment_count = Math.max(0, Number(state.selectedPost.comment_count || 0) - deletedCount);
+        const inList = state.posts.find(x => x.id === state.selectedPost.id);
+        if (inList) inList.comment_count = state.selectedPost.comment_count;
+        const detailCommentCount = document.getElementById("detail-comment-count");
+        if (detailCommentCount) detailCommentCount.textContent = String(state.selectedPost.comment_count);
+        showToast("评论已删除");
+      } catch (e) { alert(e.message); }
+    });
+  });
+
+  list.querySelectorAll("[data-admin-delete-comment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.adminDeleteComment);
+      if (!confirm("确认管理员删除这条评论吗？")) return;
+      const reason = (prompt("请输入删除原因（将通知当事人）", "违反社区规范") || "").trim();
+      try {
+        const data = await apiFetch(`/api/admin/comments/${id}`, { method: "DELETE", body: { reason } });
+        const deletedCount = Math.max(1, Number(data?.deleted_count || 1));
+        await loadComments();
+        state.selectedPost.comment_count = Math.max(0, Number(state.selectedPost.comment_count || 0) - deletedCount);
+        const inList = state.posts.find(x => x.id === state.selectedPost.id);
+        if (inList) inList.comment_count = state.selectedPost.comment_count;
+        const detailCommentCount = document.getElementById("detail-comment-count");
+        if (detailCommentCount) detailCommentCount.textContent = String(state.selectedPost.comment_count);
+        showToast("评论已管理删除");
+      } catch (e) { alert(e.message); }
+    });
+  });
+
   list.querySelectorAll("[data-reply-comment]").forEach(btn => {
     btn.addEventListener("click", () => {
       showDetailComposer(false);
@@ -3823,10 +3857,6 @@ function bindCommentActions() {
         const cancelReplyBtn = document.getElementById("btn-cancel-reply");
         if (cancelReplyBtn) {
           cancelReplyBtn.addEventListener("click", () => {
-            const input = document.getElementById("comment-input");
-            if (input && replyTargetPreview?.prefix && String(input.value || "").startsWith(replyTargetPreview.prefix)) {
-              input.value = String(input.value || "").slice(replyTargetPreview.prefix.length);
-            }
             replyTargetCommentId = null;
             replyTargetPreview = null;
             hint.style.display = "none";
@@ -3835,14 +3865,8 @@ function bindCommentActions() {
       }
       const input = document.getElementById("comment-input");
       if (input) {
-        let val = String(input.value || "");
-        if (replyTargetPreview?.prefix) {
-          val = stripLeadingQuotePrefix(val);
-          input.value = replyTargetPreview.prefix + val;
-        }
+        input.value = "";
         input.focus();
-        input.selectionStart = input.value.length;
-        input.selectionEnd = input.value.length;
       }
     });
   });

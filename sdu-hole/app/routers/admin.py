@@ -310,12 +310,31 @@ async def admin_delete_comment(
     user: User = Depends(get_current_user),
 ):
     ensure_admin(user)
-    result = await db.execute(select(Comment).where(Comment.id == comment_id))
+    result = await db.execute(select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False))
     comment = result.scalar_one_or_none()
     if not comment:
         raise HTTPException(status_code=404, detail="评论不存在")
+
+    ids_to_delete = [comment.id]
+    if comment.parent_id is None:
+        child_result = await db.execute(
+            select(Comment.id).where(
+                Comment.parent_id == comment.id,
+                Comment.is_deleted == False,
+            )
+        )
+        ids_to_delete.extend(child_result.scalars().all())
+
     reason = (payload.reason if payload else "").strip()
-    comment.is_deleted = True
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.id.in_(ids_to_delete))
+        .values(is_deleted=True)
+    )
+    post_result = await db.execute(select(Post).where(Post.id == comment.post_id))
+    post = post_result.scalar_one_or_none()
+    if post:
+        post.comment_count = max(0, int(post.comment_count or 0) - len(ids_to_delete))
     await log_moderation_hit(
         db,
         user_id=comment.user_id,
@@ -323,7 +342,7 @@ async def admin_delete_comment(
         content=f"comment:{comment.id}",
         reason=reason or "管理员删除评论",
     )
-    return {"message": "评论已删除"}
+    return {"message": "评论已删除", "deleted_count": len(ids_to_delete)}
 
 
 @router.get("/users", summary="查询用户（管理员）")

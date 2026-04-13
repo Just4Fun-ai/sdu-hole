@@ -603,12 +603,13 @@ async def list_comments(
             content=c.content, like_count=c.like_count,
             created_at=c.created_at, is_liked=c.id in liked_ids,
             is_author=(c.user_id == post.user_id),
+            is_mine=(c.user_id == user.id),
         )
         for c in comments
     ]
 
 
-def _to_comment_response(c: Comment, liked_ids: set[int], post_owner_id: int) -> CommentResponse:
+def _to_comment_response(c: Comment, liked_ids: set[int], post_owner_id: int, current_user_id: int) -> CommentResponse:
     return CommentResponse(
         id=c.id,
         post_id=c.post_id,
@@ -619,6 +620,7 @@ def _to_comment_response(c: Comment, liked_ids: set[int], post_owner_id: int) ->
         created_at=c.created_at,
         is_liked=c.id in liked_ids,
         is_author=(c.user_id == post_owner_id),
+        is_mine=(c.user_id == current_user_id),
     )
 
 
@@ -718,8 +720,8 @@ async def list_comment_threads(
         total_replies = int(total_replies_map.get(r.id, 0))
         items.append(
             {
-                "root": _to_comment_response(r, liked_ids, post.user_id),
-                "replies": [_to_comment_response(c, liked_ids, post.user_id) for c in replies],
+                "root": _to_comment_response(r, liked_ids, post.user_id, user.id),
+                "replies": [_to_comment_response(c, liked_ids, post.user_id, user.id) for c in replies],
                 "total_replies": total_replies,
                 "loaded_replies": len(replies),
                 "has_more_replies": len(replies) < total_replies,
@@ -792,7 +794,7 @@ async def list_comment_thread_replies(
         liked_ids = set(liked_result.scalars().all())
 
     return {
-        "items": [_to_comment_response(c, liked_ids, post.user_id) for c in rows],
+        "items": [_to_comment_response(c, liked_ids, post.user_id, user.id) for c in rows],
         "page": page,
         "size": size,
         "total": int(total),
@@ -866,8 +868,46 @@ async def create_comment(
         id=comment.id, post_id=comment.post_id, parent_id=comment.parent_id,
         anon_name=normalize_display_name(comment.anon_name, f"同学{comment.user_id}"),
         content=comment.content, like_count=0, created_at=comment.created_at,
-        is_liked=False, is_author=(comment.user_id == post.user_id),
+        is_liked=False, is_author=(comment.user_id == post.user_id), is_mine=True,
     )
+
+
+@router.delete("/comments/{comment_id}", summary="删除自己的评论")
+async def delete_comment(
+    comment_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_nickname_bound(user)
+    result = await db.execute(select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False))
+    comment = result.scalar_one_or_none()
+    if not comment:
+        raise HTTPException(404, "评论不存在")
+    if comment.user_id != user.id:
+        raise HTTPException(403, "只能删除自己的评论")
+
+    ids_to_delete: list[int] = [comment.id]
+    if comment.parent_id is None:
+        child_result = await db.execute(
+            select(Comment.id).where(
+                Comment.parent_id == comment.id,
+                Comment.is_deleted == False,
+            )
+        )
+        ids_to_delete.extend(child_result.scalars().all())
+
+    await db.execute(
+        Comment.__table__.update()
+        .where(Comment.id.in_(ids_to_delete))
+        .values(is_deleted=True)
+    )
+
+    post_result = await db.execute(select(Post).where(Post.id == comment.post_id))
+    post = post_result.scalar_one_or_none()
+    if post:
+        post.comment_count = max(0, int(post.comment_count or 0) - len(ids_to_delete))
+
+    return {"message": "评论已删除", "deleted_count": len(ids_to_delete)}
 
 
 @router.post("/comments/{comment_id}/like", summary="点赞/取消点赞评论")
