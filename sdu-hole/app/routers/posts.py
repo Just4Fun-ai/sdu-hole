@@ -679,24 +679,52 @@ async def list_comment_threads(
     root_ids = [r.id for r in roots]
     preview_rows: list[Comment] = []
     total_replies_map: dict[int, int] = {}
+
+    # 兼容历史多层评论：按“根主楼”聚合所有后代，而不是只看 parent_id==root_id
     if root_ids:
+        all_rows_result = await db.execute(
+            select(Comment)
+            .where(Comment.post_id == post_id, Comment.is_deleted == False)
+            .order_by(Comment.created_at)
+        )
+        all_rows = all_rows_result.scalars().all()
+        by_id = {c.id: c for c in all_rows}
+
+        root_cache: dict[int, int | None] = {}
+
+        def resolve_root_id(comment: Comment) -> int | None:
+            if comment.id in root_cache:
+                return root_cache[comment.id]
+            cur = comment
+            seen = set()
+            while cur.parent_id is not None and cur.parent_id not in seen:
+                seen.add(cur.parent_id)
+                parent = by_id.get(cur.parent_id)
+                if not parent:
+                    break
+                cur = parent
+            rid = cur.id if cur.parent_id is None else None
+            root_cache[comment.id] = rid
+            return rid
+
+        replies_by_root: dict[int, list[Comment]] = {rid: [] for rid in root_ids}
+        root_id_set = set(root_ids)
+        for c in all_rows:
+            if c.id in root_id_set:
+                continue
+            rid = resolve_root_id(c)
+            if rid not in root_id_set:
+                continue
+            if only_author and c.user_id != post.user_id:
+                continue
+            replies_by_root[rid].append(c)
+
         for rid in root_ids:
-            reply_base = select(Comment).where(
-                Comment.post_id == post_id,
-                Comment.is_deleted == False,
-                Comment.parent_id == rid,
-            )
-            if only_author:
-                reply_base = reply_base.where(Comment.user_id == post.user_id)
-            reply_total = (
-                await db.execute(select(func.count()).select_from(reply_base.subquery()))
-            ).scalar_one() or 0
-            total_replies_map[rid] = int(reply_total)
-            preview_result = await db.execute(
-                reply_base.order_by(desc(Comment.created_at)).limit(COMMENT_THREAD_PREVIEW_SIZE)
-            )
-            # 预览采用“最新优先”，但前端展示仍保持时间正序阅读
-            preview_rows.extend(list(reversed(preview_result.scalars().all())))
+            replies = replies_by_root.get(rid, [])
+            total_replies_map[rid] = len(replies)
+            # 预览采用“最新优先”取 N 条，再转回时间正序展示
+            latest_n = replies[-COMMENT_THREAD_PREVIEW_SIZE:]
+            preview_rows.extend(latest_n)
 
     all_for_like = roots + preview_rows
     comment_ids = [c.id for c in all_for_like]
@@ -768,20 +796,39 @@ async def list_comment_thread_replies(
     if not root:
         raise HTTPException(404, "主评论不存在")
 
-    base = select(Comment).where(
-        Comment.post_id == post_id,
-        Comment.is_deleted == False,
-        Comment.parent_id == root_id,
+    # 兼容历史多层评论：加载 root 的所有后代评论
+    all_rows_result = await db.execute(
+        select(Comment)
+        .where(Comment.post_id == post_id, Comment.is_deleted == False)
+        .order_by(Comment.created_at)
     )
-    if only_author:
-        base = base.where(Comment.user_id == post.user_id)
+    all_rows = all_rows_result.scalars().all()
+    by_parent: dict[int | None, list[Comment]] = {}
+    for c in all_rows:
+        by_parent.setdefault(c.parent_id, []).append(c)
 
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one() or 0
-    result = await db.execute(
-        base.order_by(desc(Comment.created_at)).offset((page - 1) * size).limit(size)
-    )
-    # 与主线程一致：每页按“最新优先”取，展示时转回正序
-    rows = list(reversed(result.scalars().all()))
+    descendants: list[Comment] = []
+    stack = [root_id]
+    visited = set()
+    while stack:
+        pid = stack.pop()
+        if pid in visited:
+            continue
+        visited.add(pid)
+        children = by_parent.get(pid, [])
+        for child in children:
+            if only_author and child.user_id != post.user_id:
+                # 仅看楼主时只过滤可见，不中断遍历，避免漏掉更深层
+                stack.append(child.id)
+                continue
+            descendants.append(child)
+            stack.append(child.id)
+
+    descendants.sort(key=lambda x: x.created_at)
+    total = len(descendants)
+    start = max(0, total - page * size)
+    end = total - (page - 1) * size
+    rows = descendants[start:end] if total > 0 else []
 
     comment_ids = [c.id for c in rows]
     liked_ids = set()
