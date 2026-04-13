@@ -693,9 +693,10 @@ async def list_comment_threads(
             ).scalar_one() or 0
             total_replies_map[rid] = int(reply_total)
             preview_result = await db.execute(
-                reply_base.order_by(Comment.created_at).limit(COMMENT_THREAD_PREVIEW_SIZE)
+                reply_base.order_by(desc(Comment.created_at)).limit(COMMENT_THREAD_PREVIEW_SIZE)
             )
-            preview_rows.extend(preview_result.scalars().all())
+            # 预览采用“最新优先”，但前端展示仍保持时间正序阅读
+            preview_rows.extend(list(reversed(preview_result.scalars().all())))
 
     all_for_like = roots + preview_rows
     comment_ids = [c.id for c in all_for_like]
@@ -777,9 +778,10 @@ async def list_comment_thread_replies(
 
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one() or 0
     result = await db.execute(
-        base.order_by(Comment.created_at).offset((page - 1) * size).limit(size)
+        base.order_by(desc(Comment.created_at)).offset((page - 1) * size).limit(size)
     )
-    rows = result.scalars().all()
+    # 与主线程一致：每页按“最新优先”取，展示时转回正序
+    rows = list(reversed(result.scalars().all()))
 
     comment_ids = [c.id for c in rows]
     liked_ids = set()

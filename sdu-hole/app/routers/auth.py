@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.database import get_db
 from app.models.user import User
@@ -401,6 +402,24 @@ async def my_notifications(
         .order_by(desc(Comment.created_at))
         .limit(500)
     )
+    # 2.1) 兼容历史数据：若 reply_to_user_id 为空，则通过 parent_id 反查父评论作者
+    parent_comment = aliased(Comment)
+    reply_rows_legacy = await db.execute(
+        select(Comment, Post)
+        .join(Post, Post.id == Comment.post_id)
+        .join(parent_comment, parent_comment.id == Comment.parent_id)
+        .where(
+            Comment.reply_to_user_id.is_(None),
+            Comment.parent_id.is_not(None),
+            Comment.is_deleted == False,
+            Comment.user_id != user.id,
+            Post.is_deleted == False,
+            parent_comment.is_deleted == False,
+            parent_comment.user_id == user.id,
+        )
+        .order_by(desc(Comment.created_at))
+        .limit(500)
+    )
 
     # 3) 管理处理反馈（沿用 moderation 日志）
     moderation_rows = await db.execute(
@@ -430,6 +449,17 @@ async def my_notifications(
     for child, p in reply_rows.all():
         nid = f"c-{child.id}"
         # 同一条评论如果既是“评论帖子”又是“回复评论”，优先展示“回复评论”
+        by_comment_notice_id[nid] = {
+            "id": nid,
+            "type": "comment_reply",
+            "created_at": child.created_at,
+            "post_id": child.post_id,
+            "comment_id": child.id,
+            "text": f"{(child.anon_name or '同学')} 回复了你的评论",
+        }
+
+    for child, p in reply_rows_legacy.all():
+        nid = f"c-{child.id}"
         by_comment_notice_id[nid] = {
             "id": nid,
             "type": "comment_reply",

@@ -688,6 +688,8 @@
     border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
     transition:transform .22s ease, opacity .22s ease;
   }
+  body.detail-composer-open .container { padding-bottom: 12px !important; }
+  body.detail-composer-open .comment-bar { bottom: 0 !important; }
   .comment-bar.auto-hidden {
     transform:translateY(calc(100% + 10px));
     opacity:.96;
@@ -2067,7 +2069,6 @@ function renderFeed() {
       <div class="load-more-wrap" id="infinite-loading" style="display:none">
         <div style="font-size:13px;color:var(--text3);padding:12px 0">加载中...</div>
       </div>
-      <div style="height:80px"></div>
     </div>
     <button class="fab" id="btn-new">✏️</button>
     <div id="modal-root"></div>
@@ -2199,7 +2200,6 @@ function renderMe() {
         ${state.meTab === "appeals" ? `<div style="display:flex;justify-content:flex-end;margin:0 0 8px"><button class="btn-outline" id="btn-me-open-appeal">发起申诉</button></div>` : ""}
         <div id="me-content-list">${contentHtml}</div>
       </div>
-      <div style="height:80px"></div>
     </div>
     <div id="modal-root"></div>
     ${renderMobileNav("me")}`;
@@ -3468,10 +3468,11 @@ function parseQuotedComment(content) {
 function renderCommentBodyHTML(content) {
   const q = parseQuotedComment(content);
   if (!q) return `<div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(content)}</div>`;
+  const cleanBody = stripLeadingQuotePrefix(q.body || "").trim();
   return `
     <div style="padding-left:32px">
       <div class="comment-quote">回复 ${escapeHTML(q.name)}：${escapeHTML(q.excerpt)}</div>
-      <div style="font-size:14px;line-height:1.7">${escapeHTML(q.body)}</div>
+      <div style="font-size:14px;line-height:1.7">${escapeHTML(cleanBody)}</div>
     </div>
   `;
 }
@@ -3523,7 +3524,6 @@ function renderDetail() {
       <div class="load-more-wrap">
         <button class="btn-outline" id="btn-load-more-comments" style="display:none">加载更多评论</button>
       </div>
-      <div style="height:80px"></div>
     </div>
     <div class="comment-bar ${state.detailComposerOpen ? "" : "hidden"}" id="detail-comment-bar">
       <div id="reply-hint" style="font-size:12px;color:var(--text2);margin-bottom:6px;${replyTargetCommentId ? '' : 'display:none;'}">
@@ -3545,6 +3545,7 @@ function showDetailComposer(focusInput = true) {
   const input = document.getElementById("comment-input");
   const nav = document.querySelector(".mobile-nav");
   state.detailComposerOpen = true;
+  document.body.classList.add("detail-composer-open");
   if (bar) bar.classList.remove("hidden");
   if (nav) nav.classList.add("hidden");
   if (focusInput && input) input.focus();
@@ -3554,6 +3555,7 @@ function hideDetailComposer(clearReply = true) {
   const bar = document.getElementById("detail-comment-bar");
   const nav = document.querySelector(".mobile-nav");
   state.detailComposerOpen = false;
+  document.body.classList.remove("detail-composer-open");
   if (bar) bar.classList.add("hidden");
   if (state.page === "detail" && state.selectedPost) {
     if (nav) nav.classList.remove("hidden");
@@ -4025,23 +4027,27 @@ function bindCommentActions() {
 
 async function submitComment() {
   const input = document.getElementById("comment-input");
-  const content = input.value.trim();
-  if (!content) return;
-  if (replyTargetCommentId && replyTargetPreview?.prefix && content.startsWith(replyTargetPreview.prefix)) {
-    const body = content.slice(replyTargetPreview.prefix.length).trim();
-    if (!body) {
-      showToast("回复内容不能为空");
-      input.focus();
-      return;
-    }
+  const raw = (input.value || "").trim();
+  if (!raw) return;
+  const cleanRaw = stripLeadingQuotePrefix(raw).trim();
+  if (!cleanRaw) {
+    showToast("回复内容不能为空");
+    input.focus();
+    return;
+  }
+  let content = cleanRaw;
+  if (replyTargetCommentId && replyTargetPreview?.prefix) {
+    // 输入框保持纯净文本；发送时才拼接引用前缀，避免出现“连环引用污染”
+    content = `${replyTargetPreview.prefix}${cleanRaw}`;
   }
   const btn = document.getElementById("btn-send-comment");
   btn.disabled = true; btn.textContent = "...";
   try {
-    await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
+    const created = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
       method:"POST",
       body:{content, parent_id: replyTargetCommentId}
     });
+    if (created?.id) state.pendingCommentId = Number(created.id);
     localStorage.removeItem(getDraftKeyForComment(state.selectedPost.id));
     input.value = "";
     replyTargetCommentId = null;
