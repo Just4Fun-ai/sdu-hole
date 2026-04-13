@@ -3292,13 +3292,23 @@ let replyTargetCommentId = null;
 let replyTargetPreview = null;
 
 function makeReplyExcerpt(content) {
-  return String(content || "").replace(/\s+/g, " ").trim().slice(0, 36).replace(/\|/g, "¦");
+  const plain = stripLeadingQuotePrefix(String(content || ""));
+  return plain.replace(/\s+/g, " ").trim().slice(0, 36).replace(/\|/g, "¦");
 }
 
 function buildReplyPrefix(comment) {
   const name = String(comment?.anon_name || "同学").trim().replace(/\|/g, "¦").slice(0, 20);
   const excerpt = makeReplyExcerpt(comment?.content || "");
   return `【引用|${name}|${excerpt}】\n`;
+}
+
+function stripLeadingQuotePrefix(text) {
+  let out = String(text || "");
+  // 新版：全角前缀  【引用|昵称|摘要】
+  out = out.replace(/^【引用\|[^|]*\|[^|]*】\n?/g, "");
+  // 兼容旧版：半角前缀  [引用|昵称|摘要]
+  out = out.replace(/^\[引用\|[^|]*\|[^|]*\]\s*/g, "");
+  return out;
 }
 
 function parseQuotedComment(content) {
@@ -3827,9 +3837,7 @@ function bindCommentActions() {
       if (input) {
         let val = String(input.value || "");
         if (replyTargetPreview?.prefix) {
-          if (val.startsWith("【引用|") && val.includes("\n")) {
-            val = val.slice(val.indexOf("\n") + 1);
-          }
+          val = stripLeadingQuotePrefix(val);
           input.value = replyTargetPreview.prefix + val;
         }
         input.focus();
