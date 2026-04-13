@@ -159,6 +159,38 @@
   .feed-search-row { display:flex; gap:8px; align-items:center; }
   .feed-search-row .search-input { flex:1; min-width:0; }
   .feed-search-row .btn-outline { flex-shrink:0; padding:8px 10px; }
+  .search-history-row {
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:8px;
+    color:var(--text3);
+    font-size:12px;
+  }
+  .search-history-chip {
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--text2);
+    border-radius:999px;
+    padding:3px 10px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .search-history-chip:hover {
+    border-color:var(--accent-border);
+    color:var(--accent);
+    background:var(--accent-soft);
+  }
+  .search-history-clear {
+    border:none;
+    background:transparent;
+    color:var(--text3);
+    cursor:pointer;
+    padding:2px 6px;
+    font-size:12px;
+  }
+  .search-history-clear:hover { color:var(--accent); }
   .tool-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .search-input {
     width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border);
@@ -512,6 +544,16 @@
   .comment-children { margin-left:32px; margin-top:8px; border-left:2px solid var(--border-light); padding-left:12px; }
   .comment-child-item { padding:10px 0; border-bottom:1px dashed var(--border-light); }
   .comment-child-item:last-child { border-bottom:none; }
+  .comment-quote {
+    margin:0 0 6px;
+    padding:6px 8px;
+    border-left:3px solid var(--accent-border);
+    background:var(--accent-soft);
+    color:var(--text2);
+    border-radius:6px;
+    font-size:12px;
+    line-height:1.6;
+  }
   .me-panel {
     background:var(--surface);
     border:1px solid var(--border);
@@ -731,6 +773,7 @@ let state = {
   order: "new",
   feedMode: "all", // all | mine | favorites
   keyword: "",
+  searchHistory: loadJSON("sdu_search_history", []),
   searchTag: "全部",
   postsPage: 1,
   pageSize: 20,
@@ -926,6 +969,8 @@ function openDetailPage(post) {
   state.detailBackCtx = snapshotNavContext();
   state.selectedPost = post;
   state.page = "detail";
+  replyTargetCommentId = null;
+  replyTargetPreview = null;
   state.detailOnlyAuthor = false;
   syncPostQuery(post?.id || null);
   render();
@@ -1024,6 +1069,16 @@ function parseSearchQuery(raw) {
   const m = text.match(/^tag:([^\s]+)\s*(.*)$/i);
   if (!m) return { tag: "全部", keyword: text.toLowerCase() };
   return { tag: m[1].trim(), keyword: (m[2] || "").trim().toLowerCase() };
+}
+
+function saveSearchHistory(keyword) {
+  const text = String(keyword || "").trim();
+  if (!text) return false;
+  const prev = JSON.stringify(state.searchHistory || []);
+  const merged = [text, ...(state.searchHistory || []).filter(x => x !== text)].slice(0, 5);
+  state.searchHistory = merged;
+  saveJSON("sdu_search_history", merged);
+  return JSON.stringify(merged) !== prev;
 }
 
 function isBlockedPost(p) {
@@ -1918,6 +1973,12 @@ function renderFeed() {
           <button class="btn-outline" id="btn-refresh" title="搜索/刷新">🔍</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
         </div>
+        ${state.searchHistory?.length ? `
+        <div class="search-history-row">
+          <span>最近搜索</span>
+          ${state.searchHistory.map(s => `<button class="search-history-chip" data-search-history="${escapeAttr(s)}">${escapeHTML(s)}</button>`).join("")}
+          <button class="search-history-clear" id="btn-clear-search-history">清空</button>
+        </div>` : ""}
       </div>
       ${topNotice ? `
       <div class="feed-announcement" id="feed-announcement" data-id="${topNotice.id}">
@@ -2299,7 +2360,11 @@ function bindFeed() {
     render();
   });
   const refreshBtn = document.getElementById("btn-refresh");
-  if (refreshBtn) refreshBtn.addEventListener("click", () => resetAndLoadPosts());
+  if (refreshBtn) refreshBtn.addEventListener("click", () => {
+    const changed = saveSearchHistory(state.keyword);
+    if (changed) render();
+    resetAndLoadPosts();
+  });
   const meBtn = document.getElementById("btn-me");
   if (meBtn) meBtn.addEventListener("click", openMePage);
   const announceBtn = document.getElementById("btn-announce");
@@ -2342,6 +2407,8 @@ function bindFeed() {
     });
     searchInput.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
+      const changed = saveSearchHistory(searchInput.value);
+      if (changed) render();
       const holeId = parseHoleIdFromSearch(searchInput.value);
       if (!holeId) return;
       e.preventDefault();
@@ -2352,6 +2419,23 @@ function bindFeed() {
       }
     });
   }
+  document.querySelectorAll("[data-search-history]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const term = String(btn.dataset.searchHistory || "");
+      if (!term) return;
+      state.keyword = term;
+      const changed = saveSearchHistory(term);
+      const input = document.getElementById("search-input");
+      if (input) input.value = term;
+      if (changed) render();
+      else renderPostList();
+    });
+  });
+  document.getElementById("btn-clear-search-history")?.addEventListener("click", () => {
+    state.searchHistory = [];
+    saveJSON("sdu_search_history", []);
+    render();
+  });
   document.getElementById("btn-new").addEventListener("click", showNewPostModal);
   const adminBtn = document.getElementById("btn-admin");
   if (adminBtn) adminBtn.addEventListener("click", showAdminPanel);
@@ -3189,6 +3273,35 @@ function detailContentHTML(post) {
 
 // ---- DETAIL ----
 let replyTargetCommentId = null;
+let replyTargetPreview = null;
+
+function makeReplyExcerpt(content) {
+  return String(content || "").replace(/\s+/g, " ").trim().slice(0, 36).replace(/\|/g, "¦");
+}
+
+function buildReplyPrefix(comment) {
+  const name = String(comment?.anon_name || "同学").trim().replace(/\|/g, "¦").slice(0, 20);
+  const excerpt = makeReplyExcerpt(comment?.content || "");
+  return `【引用|${name}|${excerpt}】\n`;
+}
+
+function parseQuotedComment(content) {
+  const text = String(content || "");
+  const m = text.match(/^【引用\|([^|]*)\|([^|]*)】\n?([\s\S]*)$/);
+  if (!m) return null;
+  return { name: m[1] || "同学", excerpt: m[2] || "", body: m[3] || "" };
+}
+
+function renderCommentBodyHTML(content) {
+  const q = parseQuotedComment(content);
+  if (!q) return `<div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(content)}</div>`;
+  return `
+    <div style="padding-left:32px">
+      <div class="comment-quote">回复 ${escapeHTML(q.name)}：${escapeHTML(q.excerpt)}</div>
+      <div style="font-size:14px;line-height:1.7">${escapeHTML(q.body)}</div>
+    </div>
+  `;
+}
 
 function renderDetail() {
   const p = state.selectedPost;
@@ -3238,7 +3351,7 @@ function renderDetail() {
     </div>
     <div class="comment-bar">
       <div id="reply-hint" style="font-size:12px;color:var(--text2);margin-bottom:6px;${replyTargetCommentId ? '' : 'display:none;'}">
-        正在回复 #${replyTargetCommentId || ""} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>
+        正在回复 #${replyTargetCommentId || ""}${replyTargetPreview?.anon_name ? ` · ${escapeHTML(replyTargetPreview.anon_name)}` : ""} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>
       </div>
       <div class="comment-input-row">
         <input class="comment-input" id="comment-input" placeholder="写下你的回复..." maxlength="500">
@@ -3301,7 +3414,12 @@ function bindDetail() {
   const cancelReplyBtn = document.getElementById("btn-cancel-reply");
   if (cancelReplyBtn) {
     cancelReplyBtn.addEventListener("click", () => {
+      const input = document.getElementById("comment-input");
+      if (input && replyTargetPreview?.prefix && String(input.value || "").startsWith(replyTargetPreview.prefix)) {
+        input.value = String(input.value || "").slice(replyTargetPreview.prefix.length);
+      }
       replyTargetCommentId = null;
+      replyTargetPreview = null;
       const hint = document.getElementById("reply-hint");
       if (hint) hint.style.display = "none";
     });
@@ -3441,7 +3559,7 @@ async function loadComments() {
             ${c.is_author ? `<span style="font-size:12px;color:var(--accent)">楼主</span>` : ""}
             <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
           </div>
-          <div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(c.content)}</div>
+          ${renderCommentBodyHTML(c.content)}
           <div class="post-actions" style="padding-left:32px;margin-top:8px">
             <button class="action-btn ${c.is_liked?"liked":""}" data-like-comment="${c.id}">
               ${c.is_liked?"❤️":"🤍"} <span>${c.like_count}</span>
@@ -3517,20 +3635,43 @@ function bindCommentActions() {
   list.querySelectorAll("[data-reply-comment]").forEach(btn => {
     btn.addEventListener("click", () => {
       replyTargetCommentId = parseInt(btn.dataset.replyComment);
+      const target = state.comments.find(x => x.id === replyTargetCommentId);
+      const prefix = buildReplyPrefix(target || {});
+      replyTargetPreview = {
+        anon_name: String(target?.anon_name || ""),
+        excerpt: makeReplyExcerpt(target?.content || ""),
+        prefix,
+      };
       const hint = document.getElementById("reply-hint");
       if (hint) {
         hint.style.display = "";
-        hint.innerHTML = `正在回复 #${replyTargetCommentId} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>`;
+        hint.innerHTML = `正在回复 #${replyTargetCommentId}${replyTargetPreview.anon_name ? ` · ${escapeHTML(replyTargetPreview.anon_name)}` : ""} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>`;
         const cancelReplyBtn = document.getElementById("btn-cancel-reply");
         if (cancelReplyBtn) {
           cancelReplyBtn.addEventListener("click", () => {
+            const input = document.getElementById("comment-input");
+            if (input && replyTargetPreview?.prefix && String(input.value || "").startsWith(replyTargetPreview.prefix)) {
+              input.value = String(input.value || "").slice(replyTargetPreview.prefix.length);
+            }
             replyTargetCommentId = null;
+            replyTargetPreview = null;
             hint.style.display = "none";
           });
         }
       }
       const input = document.getElementById("comment-input");
-      if (input) input.focus();
+      if (input) {
+        let val = String(input.value || "");
+        if (replyTargetPreview?.prefix) {
+          if (val.startsWith("【引用|") && val.includes("\n")) {
+            val = val.slice(val.indexOf("\n") + 1);
+          }
+          input.value = replyTargetPreview.prefix + val;
+        }
+        input.focus();
+        input.selectionStart = input.value.length;
+        input.selectionEnd = input.value.length;
+      }
     });
   });
 }
@@ -3539,6 +3680,14 @@ async function submitComment() {
   const input = document.getElementById("comment-input");
   const content = input.value.trim();
   if (!content) return;
+  if (replyTargetCommentId && replyTargetPreview?.prefix && content.startsWith(replyTargetPreview.prefix)) {
+    const body = content.slice(replyTargetPreview.prefix.length).trim();
+    if (!body) {
+      showToast("回复内容不能为空");
+      input.focus();
+      return;
+    }
+  }
   const btn = document.getElementById("btn-send-comment");
   btn.disabled = true; btn.textContent = "...";
   try {
@@ -3549,6 +3698,7 @@ async function submitComment() {
     localStorage.removeItem(getDraftKeyForComment(state.selectedPost.id));
     input.value = "";
     replyTargetCommentId = null;
+    replyTargetPreview = null;
     const hint = document.getElementById("reply-hint");
     if (hint) hint.style.display = "none";
     await loadComments();
