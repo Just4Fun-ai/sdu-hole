@@ -648,6 +648,12 @@
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
     border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
+    transition:transform .22s ease, opacity .22s ease;
+  }
+  .comment-bar.auto-hidden {
+    transform:translateY(calc(100% + 10px));
+    opacity:.96;
+    pointer-events:none;
   }
   .comment-input-row { display:flex; gap:10px; align-items:center; }
   .emoji-bar { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
@@ -817,6 +823,7 @@ let state = {
   detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
   meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
+let detailCommentBarScrollHandler = null;
 
 function applyTouchLayoutClass() {
   try {
@@ -3368,11 +3375,46 @@ function renderDetail() {
     ${renderMobileNav("detail")}`;
 }
 
+function setupDetailCommentBarAutoHide() {
+  const bar = document.querySelector(".comment-bar");
+  const input = document.getElementById("comment-input");
+  if (!bar || !input) return;
+
+  if (detailCommentBarScrollHandler) {
+    window.removeEventListener("scroll", detailCommentBarScrollHandler);
+    detailCommentBarScrollHandler = null;
+  }
+
+  let lastY = window.scrollY || 0;
+  const showBar = () => bar.classList.remove("auto-hidden");
+  const hideBar = () => bar.classList.add("auto-hidden");
+
+  detailCommentBarScrollHandler = () => {
+    if (state.page !== "detail") return;
+    if (document.activeElement === input) {
+      showBar();
+      return;
+    }
+    const y = window.scrollY || 0;
+    const dy = y - lastY;
+    if (y <= 120 || dy < -5) showBar();
+    else if (dy > 8) hideBar();
+    lastY = y;
+  };
+
+  window.addEventListener("scroll", detailCommentBarScrollHandler, { passive: true });
+  input.addEventListener("focus", showBar);
+  input.addEventListener("blur", () => {
+    if ((window.scrollY || 0) > 180) hideBar();
+  });
+}
+
 function bindDetail() {
   document.getElementById("btn-back").addEventListener("click", () => {
     goBackFromDetail();
   });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
+  setupDetailCommentBarAutoHide();
   const commentInputEl = document.getElementById("comment-input");
   const draftKey = getDraftKeyForComment(state.selectedPost.id);
   const draftVal = localStorage.getItem(draftKey) || "";
