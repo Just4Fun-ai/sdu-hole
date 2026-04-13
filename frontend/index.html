@@ -168,9 +168,9 @@
   .tag-bar::-webkit-scrollbar-track { background:transparent; }
   .tag-bar::-webkit-scrollbar-thumb { background:var(--border); border-radius:999px; }
   .search-row { margin-top:12px; }
-  .feed-search-row { display:flex; gap:8px; align-items:center; }
-  .feed-search-row .search-input { flex:1; min-width:0; }
-  .feed-search-row .btn-outline { flex-shrink:0; padding:8px 10px; }
+  .feed-search-row { display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
+  .feed-search-row .search-input { flex:1 1 auto; min-width:0; width:0; }
+  .feed-search-row .btn-outline { flex-shrink:0; padding:8px 10px; white-space:nowrap; }
   .search-history-row {
     display:flex;
     align-items:center;
@@ -550,6 +550,15 @@
       width:40px; height:40px; padding:0;
       display:inline-flex; align-items:center; justify-content:center;
       font-size:16px; line-height:1;
+    }
+    #btn-announce {
+      width:auto !important;
+      min-width:0;
+      max-width:90px;
+      padding:0 10px !important;
+      font-size:12px !important;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .mobile-nav { display:block !important; }
     .fab { display:none; }
@@ -2442,9 +2451,8 @@ function bindFeed() {
   });
   const refreshBtn = document.getElementById("btn-refresh");
   if (refreshBtn) refreshBtn.addEventListener("click", () => {
-    const changed = saveSearchHistory(state.keyword);
-    if (changed) render();
-    resetAndLoadPosts();
+    saveSearchHistory(state.keyword);
+    resetAndLoadPosts({ preserveList: true });
   });
   const meBtn = document.getElementById("btn-me");
   if (meBtn) meBtn.addEventListener("click", openMePage);
@@ -2488,8 +2496,7 @@ function bindFeed() {
     });
     searchInput.addEventListener("keydown", async (e) => {
       if (e.key !== "Enter") return;
-      const changed = saveSearchHistory(searchInput.value);
-      if (changed) render();
+      saveSearchHistory(searchInput.value);
       const holeId = parseHoleIdFromSearch(searchInput.value);
       if (!holeId) return;
       e.preventDefault();
@@ -2550,10 +2557,10 @@ function bindMobileNav() {
   });
 }
 
-function resetAndLoadPosts() {
+function resetAndLoadPosts(opts = { preserveList: false }) {
   state.postsPage = 1;
   state.hasMorePosts = true;
-  loadPosts({ append: false });
+  loadPosts({ append: false, preserveList: !!opts.preserveList });
 }
 
 async function loadAnnouncements() {
@@ -2564,13 +2571,17 @@ async function loadAnnouncements() {
   }
 }
 
-async function loadPosts(opts = { append: false }) {
+async function loadPosts(opts = { append: false, preserveList: false }) {
+  const normalized = {
+    append: !!opts?.append,
+    preserveList: !!opts?.preserveList,
+  };
   const list = document.getElementById("post-list");
   const loadingEl = document.getElementById("infinite-loading");
   if (state.loadingPosts) return;
   state.loadingPosts = true;
-  if (loadingEl && opts.append) loadingEl.style.display = "block";
-  if (!opts.append && list) list.innerHTML = skeletonCardsHTML(4);
+  if (loadingEl && normalized.append) loadingEl.style.display = "block";
+  if (!normalized.append && list && !normalized.preserveList) list.innerHTML = skeletonCardsHTML(4);
   try {
     const params = new URLSearchParams({
       order: state.order,
@@ -2582,13 +2593,13 @@ async function loadPosts(opts = { append: false }) {
     if (state.feedMode === "favorites") params.set("favorited", "true");
     const rows = await apiFetch("/api/posts/?" + params);
     state.hasMorePosts = rows.length >= state.pageSize;
-    if (opts.append) state.posts = [...state.posts, ...rows];
+    if (normalized.append) state.posts = [...state.posts, ...rows];
     else state.posts = rows;
     if (rows.length > 0) {
-      if (opts.append) state.postsPage += 1;
+      if (normalized.append) state.postsPage += 1;
       else state.postsPage = 2;
     }
-    if (!opts.append) await loadAnnouncements();
+    if (!normalized.append) await loadAnnouncements();
     if (state.pendingPostId) {
       const pid = state.pendingPostId;
       state.pendingPostId = null;
@@ -2719,6 +2730,19 @@ function bindPostListInteractions(list) {
   list.querySelectorAll(".post-card").forEach(el => {
     const id = parseInt(el.dataset.id);
     bindDoubleTapLike(el, id);
+  });
+
+  list.querySelectorAll("[data-goto]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.goto, 10);
+      if (!Number.isFinite(id)) return;
+      const post = state.posts.find(x => x.id === id);
+      if (!post) return;
+      replyTargetCommentId = null;
+      openDetailPage(post);
+      setTimeout(() => showDetailComposer(true), 0);
+    });
   });
 
   list.querySelectorAll("[data-like]").forEach(btn => {
@@ -3298,9 +3322,11 @@ async function submitNewPost() {
     newPostImages.forEach(it => { if (it.preview?.startsWith("blob:")) URL.revokeObjectURL(it.preview); });
     newPostImages = [];
     state.activeTag = "全部";
-    state.feedDirty = true;
+    state.feedDirty = false;
+    state.posts = [post, ...state.posts.filter(p => p.id !== post.id)];
     document.getElementById("modal-root").innerHTML = "";
-    render();
+    renderPostList();
+    setupInfiniteScroll();
     showToast("发布成功");
     setTimeout(() => {
       const card = document.querySelector(`.post-card[data-id="${post.id}"]`);
