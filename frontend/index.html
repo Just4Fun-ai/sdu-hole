@@ -3851,10 +3851,12 @@ function renderCommentThreads() {
       return renderCommentRow(child, floor, true);
     }).join("");
     const childWrap = children ? `<div class="comment-children">${children}</div>` : "";
-    const hiddenCount = Math.max(0, allChildren.length - visibleChildren.length);
-    const toggleHtml = allChildren.length > DEFAULT_CHILDREN_COLLAPSE
+    const totalReplies = Math.max(Number(thread.total_replies || 0), allChildren.length);
+    const hiddenCount = Math.max(0, totalReplies - visibleChildren.length);
+    const canToggle = expanded || hiddenCount > 0 || !!thread.has_more_replies;
+    const toggleHtml = canToggle
       ? `<button class="comment-thread-toggle" data-toggle-thread="${root.id}">
-          ${hiddenCount > 0 ? `展开 ${hiddenCount} 条回复` : "收起回复"}
+          ${expanded ? "收起回复" : `展开 ${Math.max(1, hiddenCount)} 条回复`}
         </button>`
       : "";
     const loadMoreRepliesHtml = expanded && thread.has_more_replies
