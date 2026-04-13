@@ -3440,8 +3440,12 @@ let replyTargetCommentId = null;
 let replyTargetPreview = null;
 
 function makeReplyExcerpt(content) {
-  const plain = stripLeadingQuotePrefix(String(content || ""));
-  return plain.replace(/\s+/g, " ").trim().slice(0, 36).replace(/\|/g, "¦");
+  const plain = extractCommentPlainBody(String(content || ""));
+  return plain
+    .replace(/[【】\[\]\|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 36);
 }
 
 function buildReplyPrefix(comment) {
@@ -3452,10 +3456,26 @@ function buildReplyPrefix(comment) {
 
 function stripLeadingQuotePrefix(text) {
   let out = String(text || "");
-  // 去掉前导引用片段（兼容历史格式，支持连环引用）
-  out = out.replace(/^(?:\s*[【\[]引用[^\]】]{0,120}[】\]]\s*)+/g, "");
-  out = out.replace(/^回复[^:：]{0,30}[:：]\s*/g, "");
+  // 只保留“上一条回复”的正文，连续剥离历史引用壳
+  // 新格式：【引用|昵称|片段】
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const before = out;
+    out = out
+      .replace(/^\s*【引用\|[^|]{0,40}\|[\s\S]{0,220}?】\s*/g, "")
+      .replace(/^\s*[【\[]引用[^\]】]{0,220}[】\]]\s*/g, "")
+      .replace(/^\s*回复[^:：]{0,30}[:：]\s*/g, "")
+      .replace(/^\s*[\]\)】】|]+\s*/g, "");
+    changed = out !== before;
+  }
   return out;
+}
+
+function extractCommentPlainBody(content) {
+  const q = parseQuotedComment(content);
+  const base = q ? String(q.body || "") : String(content || "");
+  return stripLeadingQuotePrefix(base).trim();
 }
 
 function parseQuotedComment(content) {
@@ -3467,8 +3487,11 @@ function parseQuotedComment(content) {
 
 function renderCommentBodyHTML(content) {
   const q = parseQuotedComment(content);
-  if (!q) return `<div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(content)}</div>`;
-  const cleanBody = stripLeadingQuotePrefix(q.body || "").trim();
+  if (!q) {
+    const clean = extractCommentPlainBody(content);
+    return `<div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(clean)}</div>`;
+  }
+  const cleanBody = extractCommentPlainBody(q.body || "");
   return `
     <div style="padding-left:32px">
       <div class="comment-quote">回复 ${escapeHTML(q.name)}：${escapeHTML(q.excerpt)}</div>
