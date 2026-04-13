@@ -10,6 +10,7 @@ class Comment(Base):
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    reply_to_user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     parent_id = Column(Integer, ForeignKey("comments.id"), index=True, nullable=True)
     anon_name = Column(String(32), nullable=False)
     content = Column(Text, nullable=False)

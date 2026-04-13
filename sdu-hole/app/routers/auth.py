@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, desc
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -398,20 +397,16 @@ async def my_notifications(
     )
 
     # 2) 他人回复了我的评论
-    parent_comment = aliased(Comment)
-    child_comment = aliased(Comment)
     reply_rows = await db.execute(
-        select(child_comment, parent_comment, Post)
-        .join(parent_comment, child_comment.parent_id == parent_comment.id)
-        .join(Post, Post.id == child_comment.post_id)
+        select(Comment, Post)
+        .join(Post, Post.id == Comment.post_id)
         .where(
-            parent_comment.user_id == user.id,
-            parent_comment.is_deleted == False,
-            child_comment.is_deleted == False,
-            child_comment.user_id != user.id,
+            Comment.reply_to_user_id == user.id,
+            Comment.is_deleted == False,
+            Comment.user_id != user.id,
             Post.is_deleted == False,
         )
-        .order_by(desc(child_comment.created_at))
+        .order_by(desc(Comment.created_at))
         .limit(500)
     )
 
@@ -440,7 +435,7 @@ async def my_notifications(
             "text": f"{(c.anon_name or '同学')} 评论了你的帖子",
         }
 
-    for child, parent, p in reply_rows.all():
+    for child, p in reply_rows.all():
         nid = f"c-{child.id}"
         # 同一条评论如果既是“评论帖子”又是“回复评论”，优先展示“回复评论”
         by_comment_notice_id[nid] = {

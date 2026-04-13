@@ -810,6 +810,10 @@ let state = {
   },
   pendingCommentId: null,
   commentThreadExpanded: {},
+  commentThreads: [],
+  commentThreadPage: 1,
+  commentThreadHasMore: false,
+  commentThreadLoadingMore: false,
   detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
   meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
@@ -982,6 +986,10 @@ function openDetailPage(post) {
   replyTargetCommentId = null;
   replyTargetPreview = null;
   state.commentThreadExpanded = {};
+  state.commentThreads = [];
+  state.commentThreadPage = 1;
+  state.commentThreadHasMore = false;
+  state.commentThreadLoadingMore = false;
   state.detailOnlyAuthor = false;
   syncPostQuery(post?.id || null);
   render();
@@ -3340,6 +3348,9 @@ function renderDetail() {
         <button class="btn-outline" id="btn-only-author">${state.detailOnlyAuthor ? "查看全部回复" : "只看楼主"}</button>
       </div>
       <div id="comments-list"><div class="empty-state">加载中...</div></div>
+      <div class="load-more-wrap">
+        <button class="btn-outline" id="btn-load-more-comments" style="display:none">加载更多评论</button>
+      </div>
       <div style="height:80px"></div>
     </div>
     <div class="comment-bar">
@@ -3372,8 +3383,15 @@ function bindDetail() {
   });
   document.getElementById("btn-only-author").addEventListener("click", () => {
     state.detailOnlyAuthor = !state.detailOnlyAuthor;
+    state.commentThreads = [];
+    state.commentThreadPage = 1;
+    state.commentThreadHasMore = false;
+    state.commentThreadExpanded = {};
     loadComments();
     document.getElementById("btn-only-author").textContent = state.detailOnlyAuthor ? "查看全部回复" : "只看楼主";
+  });
+  document.getElementById("btn-load-more-comments")?.addEventListener("click", () => {
+    loadMoreRootThreads();
   });
   const copyIdBtn = document.getElementById("detail-copy-id-btn");
   if (copyIdBtn) {
@@ -3525,104 +3543,151 @@ function bindDetail() {
 async function loadComments() {
   const list = document.getElementById("comments-list");
   const countEl = document.getElementById("comment-count");
-  const DEFAULT_CHILDREN_COLLAPSE = 3;
   try {
-    state.comments = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`);
-    const allComments = state.comments;
-    const showComments = state.detailOnlyAuthor ? allComments.filter(c => c.is_author) : allComments;
-    countEl.textContent = state.detailOnlyAuthor ? `${showComments.length}/${allComments.length}` : String(showComments.length);
-    if (showComments.length === 0) {
-      list.innerHTML = `<div class="empty-state">${state.detailOnlyAuthor ? "楼主暂未回复，已切到“只看楼主”" : "还没有回复，来说两句吧 ✍️"}</div>`;
-    } else {
-      const byId = new Map(showComments.map(c => [c.id, c]));
-      const rootMemo = new Map();
-      const getRootId = (commentId) => {
-        if (rootMemo.has(commentId)) return rootMemo.get(commentId);
-        let cur = byId.get(commentId);
-        if (!cur) return commentId;
-        const seen = new Set();
-        while (cur && cur.parent_id && byId.has(cur.parent_id) && !seen.has(cur.parent_id)) {
-          seen.add(cur.parent_id);
-          cur = byId.get(cur.parent_id);
-        }
-        const rid = cur?.id || commentId;
-        rootMemo.set(commentId, rid);
-        return rid;
-      };
-      const roots = showComments.filter(c => getRootId(c.id) === c.id);
-      const threadChildren = new Map();
-      showComments.forEach(c => {
-        const rid = getRootId(c.id);
-        if (rid === c.id) return;
-        const arr = threadChildren.get(rid) || [];
-        arr.push(c);
-        threadChildren.set(rid, arr);
-      });
-      threadChildren.forEach((arr, rid) => {
-        arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      });
-      if (Number.isFinite(state.pendingCommentId) && byId.has(state.pendingCommentId)) {
-        const rootId = getRootId(state.pendingCommentId);
-        state.commentThreadExpanded[rootId] = true;
-      }
-
-      const renderCommentRow = (c, floor, isChild = false) => `
-        <div class="${isChild ? "comment-child-item" : "comment-item"}" data-comment-id="${c.id}" style="animation-delay:${floor*40}ms">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            ${avatarHTML(c.id * 3, c.anon_name, 24)}
-            <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
-            <span style="font-size:12px;color:var(--text3)">#${floor}</span>
-            ${c.is_author ? `<span style="font-size:12px;color:var(--accent)">楼主</span>` : ""}
-            <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
-          </div>
-          ${renderCommentBodyHTML(c.content)}
-          <div class="post-actions" style="padding-left:32px;margin-top:8px">
-            <button class="action-btn ${c.is_liked?"liked":""}" data-like-comment="${c.id}">
-              ${c.is_liked?"❤️":"🤍"} <span>${c.like_count}</span>
-            </button>
-            <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
-            <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
-          </div>
-        </div>
-      `;
-
-      let floor = 0;
-      list.innerHTML = roots.map(root => {
-        floor += 1;
-        const rootHtml = renderCommentRow(root, floor, false);
-        const allChildren = threadChildren.get(root.id) || [];
-        const expanded = !!state.commentThreadExpanded[root.id];
-        const visibleChildren = expanded ? allChildren : allChildren.slice(0, DEFAULT_CHILDREN_COLLAPSE);
-        const children = visibleChildren.map(child => {
-          floor += 1;
-          return renderCommentRow(child, floor, true);
-        }).join("");
-        const childWrap = children ? `<div class="comment-children">${children}</div>` : "";
-        const hiddenCount = Math.max(0, allChildren.length - visibleChildren.length);
-        const toggleHtml = allChildren.length > DEFAULT_CHILDREN_COLLAPSE
-          ? `<button class="comment-thread-toggle" data-toggle-thread="${root.id}">
-              ${hiddenCount > 0 ? `展开 ${hiddenCount} 条回复` : "收起回复"}
-            </button>`
-          : "";
-        return `${rootHtml}${childWrap}${toggleHtml}`;
-      }).join("");
-      bindCommentActions();
-      if (Number.isFinite(state.pendingCommentId)) {
-        const target = list.querySelector(`[data-comment-id="${state.pendingCommentId}"]`);
-        state.pendingCommentId = null;
-        if (target) {
-          target.style.background = "rgba(166,27,41,0.06)";
-          target.style.borderRadius = "8px";
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          setTimeout(() => {
-            target.style.background = "";
-            target.style.borderRadius = "";
-          }, 1600);
-        }
-      }
-    }
+    const data = await apiFetch(
+      `/api/posts/${state.selectedPost.id}/comment-threads?page=1&size=20&only_author=${state.detailOnlyAuthor ? "true" : "false"}`
+    );
+    state.commentThreadPage = 1;
+    state.commentThreads = (data.items || []).map(t => ({
+      ...t,
+      replies_page: 1,
+    }));
+    state.commentThreadHasMore = !!data.has_more;
+    countEl.textContent = state.detailOnlyAuthor
+      ? `${Number(data.total_visible_comments || 0)}/${Number(data.total_all_comments || 0)}`
+      : String(Number(data.total_all_comments || 0));
+    renderCommentThreads();
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}</div>`;
+  }
+}
+
+function renderCommentThreads() {
+  const list = document.getElementById("comments-list");
+  const DEFAULT_CHILDREN_COLLAPSE = 3;
+  if (!list) return;
+  if (!state.commentThreads.length) {
+    list.innerHTML = `<div class="empty-state">${state.detailOnlyAuthor ? "楼主暂未回复，已切到“只看楼主”" : "还没有回复，来说两句吧 ✍️"}</div>`;
+    const lm = document.getElementById("btn-load-more-comments");
+    if (lm) lm.style.display = "none";
+    return;
+  }
+
+  const allComments = [];
+  state.commentThreads.forEach(t => {
+    if (t.root) allComments.push(t.root);
+    (t.replies || []).forEach(r => allComments.push(r));
+  });
+  state.comments = allComments;
+
+  const renderCommentRow = (c, floor, isChild = false) => `
+    <div class="${isChild ? "comment-child-item" : "comment-item"}" data-comment-id="${c.id}" style="animation-delay:${floor*40}ms">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        ${avatarHTML(c.id * 3, c.anon_name, 24)}
+        <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+        <span style="font-size:12px;color:var(--text3)">#${floor}</span>
+        ${c.is_author ? `<span style="font-size:12px;color:var(--accent)">楼主</span>` : ""}
+        <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
+      </div>
+      ${renderCommentBodyHTML(c.content)}
+      <div class="post-actions" style="padding-left:32px;margin-top:8px">
+        <button class="action-btn ${c.is_liked?"liked":""}" data-like-comment="${c.id}">
+          ${c.is_liked?"❤️":"🤍"} <span>${c.like_count}</span>
+        </button>
+        <button class="action-btn" data-reply-comment="${c.id}">↩ 回复</button>
+        <button class="action-btn warn" data-report-comment="${c.id}">🚩 举报</button>
+      </div>
+    </div>
+  `;
+
+  let floor = 0;
+  list.innerHTML = state.commentThreads.map(thread => {
+    const root = thread.root;
+    floor += 1;
+    const rootHtml = renderCommentRow(root, floor, false);
+    const allChildren = thread.replies || [];
+    const expanded = !!state.commentThreadExpanded[root.id];
+    const visibleChildren = expanded ? allChildren : allChildren.slice(0, DEFAULT_CHILDREN_COLLAPSE);
+    const children = visibleChildren.map(child => {
+      floor += 1;
+      return renderCommentRow(child, floor, true);
+    }).join("");
+    const childWrap = children ? `<div class="comment-children">${children}</div>` : "";
+    const hiddenCount = Math.max(0, allChildren.length - visibleChildren.length);
+    const toggleHtml = allChildren.length > DEFAULT_CHILDREN_COLLAPSE
+      ? `<button class="comment-thread-toggle" data-toggle-thread="${root.id}">
+          ${hiddenCount > 0 ? `展开 ${hiddenCount} 条回复` : "收起回复"}
+        </button>`
+      : "";
+    const loadMoreRepliesHtml = expanded && thread.has_more_replies
+      ? `<button class="comment-thread-toggle" data-load-replies-root="${root.id}">加载更多回复</button>`
+      : "";
+    return `${rootHtml}${childWrap}${toggleHtml}${loadMoreRepliesHtml}`;
+  }).join("");
+
+  const lm = document.getElementById("btn-load-more-comments");
+  if (lm) {
+    lm.style.display = state.commentThreadHasMore ? "inline-block" : "none";
+    lm.disabled = !!state.commentThreadLoadingMore;
+    lm.textContent = state.commentThreadLoadingMore ? "加载中..." : "加载更多评论";
+  }
+
+  bindCommentActions();
+  if (Number.isFinite(state.pendingCommentId)) {
+    const target = list.querySelector(`[data-comment-id="${state.pendingCommentId}"]`);
+    if (target) {
+      const pendingId = state.pendingCommentId;
+      state.pendingCommentId = null;
+      target.style.background = "rgba(166,27,41,0.06)";
+      target.style.borderRadius = "8px";
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => {
+        target.style.background = "";
+        target.style.borderRadius = "";
+      }, 1600);
+    }
+  }
+}
+
+async function loadMoreRootThreads() {
+  if (state.commentThreadLoadingMore || !state.commentThreadHasMore) return;
+  state.commentThreadLoadingMore = true;
+  renderCommentThreads();
+  try {
+    const nextPage = state.commentThreadPage + 1;
+    const data = await apiFetch(
+      `/api/posts/${state.selectedPost.id}/comment-threads?page=${nextPage}&size=20&only_author=${state.detailOnlyAuthor ? "true" : "false"}`
+    );
+    const items = (data.items || []).map(t => ({ ...t, replies_page: 1 }));
+    state.commentThreads = state.commentThreads.concat(items);
+    state.commentThreadPage = nextPage;
+    state.commentThreadHasMore = !!data.has_more;
+  } catch (e) {
+    showToast(e.message || "加载更多评论失败");
+  } finally {
+    state.commentThreadLoadingMore = false;
+    renderCommentThreads();
+  }
+}
+
+async function loadMoreReplies(rootId) {
+  const thread = state.commentThreads.find(t => Number(t.root?.id) === Number(rootId));
+  if (!thread || !thread.has_more_replies) return;
+  const nextPage = Number(thread.replies_page || 1) + 1;
+  try {
+    const data = await apiFetch(
+      `/api/posts/${state.selectedPost.id}/comment-threads/${rootId}/replies?page=${nextPage}&size=20&only_author=${state.detailOnlyAuthor ? "true" : "false"}`
+    );
+    const old = Array.isArray(thread.replies) ? thread.replies : [];
+    const merged = old.concat(data.items || []);
+    thread.replies = merged;
+    thread.replies_page = nextPage;
+    thread.loaded_replies = merged.length;
+    thread.total_replies = Number(data.total || thread.total_replies || merged.length);
+    thread.has_more_replies = !!data.has_more;
+    renderCommentThreads();
+  } catch (e) {
+    showToast(e.message || "加载更多回复失败");
   }
 }
 
@@ -3635,7 +3700,15 @@ function bindCommentActions() {
       const rid = parseInt(btn.dataset.toggleThread || "", 10);
       if (!Number.isFinite(rid)) return;
       state.commentThreadExpanded[rid] = !state.commentThreadExpanded[rid];
-      loadComments();
+      renderCommentThreads();
+    });
+  });
+
+  list.querySelectorAll("[data-load-replies-root]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rid = parseInt(btn.dataset.loadRepliesRoot || "", 10);
+      if (!Number.isFinite(rid)) return;
+      loadMoreReplies(rid);
     });
   });
 

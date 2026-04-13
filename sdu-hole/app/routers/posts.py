@@ -36,6 +36,7 @@ VALID_TAGS = [
 ]
 
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp"}
+COMMENT_THREAD_PREVIEW_SIZE = 3
 
 
 def upload_root_dir() -> str:
@@ -119,6 +120,28 @@ def normalize_display_name(name: str | None, fallback: str) -> str:
 def ensure_nickname_bound(user: User):
     if not (user.nickname or "").strip():
         raise HTTPException(status_code=403, detail="请先完成匿名昵称绑定")
+
+
+async def resolve_comment_root(db: AsyncSession, comment: Comment) -> Comment:
+    """
+    将任意层级评论归一到主楼评论（两层评论结构）。
+    """
+    cur = comment
+    visited = set()
+    while cur.parent_id and cur.parent_id not in visited:
+        visited.add(cur.parent_id)
+        r = await db.execute(
+            select(Comment).where(
+                Comment.id == cur.parent_id,
+                Comment.post_id == cur.post_id,
+                Comment.is_deleted == False,
+            )
+        )
+        parent = r.scalar_one_or_none()
+        if not parent:
+            break
+        cur = parent
+    return cur
 
 
 @router.get("/", summary="获取帖子列表")
@@ -585,6 +608,198 @@ async def list_comments(
     ]
 
 
+def _to_comment_response(c: Comment, liked_ids: set[int], post_owner_id: int) -> CommentResponse:
+    return CommentResponse(
+        id=c.id,
+        post_id=c.post_id,
+        parent_id=c.parent_id,
+        anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
+        content=c.content,
+        like_count=c.like_count,
+        created_at=c.created_at,
+        is_liked=c.id in liked_ids,
+        is_author=(c.user_id == post_owner_id),
+    )
+
+
+@router.get("/{post_id}/comment-threads", summary="获取主评论线程（分页）")
+async def list_comment_threads(
+    post_id: int,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=50),
+    only_author: bool = Query(False, description="仅看楼主评论"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_nickname_bound(user)
+    post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(404, "帖子不存在")
+
+    root_base = select(Comment).where(
+        Comment.post_id == post_id,
+        Comment.is_deleted == False,
+        Comment.parent_id.is_(None),
+    )
+    if only_author:
+        root_base = root_base.where(Comment.user_id == post.user_id)
+
+    total_roots = (
+        await db.execute(select(func.count()).select_from(root_base.subquery()))
+    ).scalar_one() or 0
+
+    roots_result = await db.execute(
+        root_base.order_by(Comment.created_at).offset((page - 1) * size).limit(size)
+    )
+    roots = roots_result.scalars().all()
+
+    total_all_comments = (
+        await db.execute(
+            select(func.count()).select_from(
+                select(Comment.id)
+                .where(Comment.post_id == post_id, Comment.is_deleted == False)
+                .subquery()
+            )
+        )
+    ).scalar_one() or 0
+
+    visible_base = select(Comment.id).where(
+        Comment.post_id == post_id,
+        Comment.is_deleted == False,
+    )
+    if only_author:
+        visible_base = visible_base.where(Comment.user_id == post.user_id)
+    total_visible_comments = (
+        await db.execute(select(func.count()).select_from(visible_base.subquery()))
+    ).scalar_one() or 0
+
+    root_ids = [r.id for r in roots]
+    preview_rows: list[Comment] = []
+    total_replies_map: dict[int, int] = {}
+    if root_ids:
+        for rid in root_ids:
+            reply_base = select(Comment).where(
+                Comment.post_id == post_id,
+                Comment.is_deleted == False,
+                Comment.parent_id == rid,
+            )
+            if only_author:
+                reply_base = reply_base.where(Comment.user_id == post.user_id)
+            reply_total = (
+                await db.execute(select(func.count()).select_from(reply_base.subquery()))
+            ).scalar_one() or 0
+            total_replies_map[rid] = int(reply_total)
+            preview_result = await db.execute(
+                reply_base.order_by(Comment.created_at).limit(COMMENT_THREAD_PREVIEW_SIZE)
+            )
+            preview_rows.extend(preview_result.scalars().all())
+
+    all_for_like = roots + preview_rows
+    comment_ids = [c.id for c in all_for_like]
+    liked_ids = set()
+    if comment_ids:
+        liked_result = await db.execute(
+            select(Like.target_id).where(
+                Like.user_id == user.id,
+                Like.target_type == "comment",
+                Like.target_id.in_(comment_ids),
+            )
+        )
+        liked_ids = set(liked_result.scalars().all())
+
+    preview_map: dict[int, list[Comment]] = {}
+    for c in preview_rows:
+        preview_map.setdefault(c.parent_id, []).append(c)
+
+    items = []
+    for r in roots:
+        replies = preview_map.get(r.id, [])
+        total_replies = int(total_replies_map.get(r.id, 0))
+        items.append(
+            {
+                "root": _to_comment_response(r, liked_ids, post.user_id),
+                "replies": [_to_comment_response(c, liked_ids, post.user_id) for c in replies],
+                "total_replies": total_replies,
+                "loaded_replies": len(replies),
+                "has_more_replies": len(replies) < total_replies,
+            }
+        )
+
+    return {
+        "items": items,
+        "page": page,
+        "size": size,
+        "has_more": page * size < int(total_roots),
+        "total_roots": int(total_roots),
+        "total_visible_comments": int(total_visible_comments),
+        "total_all_comments": int(total_all_comments),
+    }
+
+
+@router.get("/{post_id}/comment-threads/{root_id}/replies", summary="获取某主评论下回复（分页）")
+async def list_comment_thread_replies(
+    post_id: int,
+    root_id: int,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    only_author: bool = Query(False, description="仅看楼主评论"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ensure_nickname_bound(user)
+    post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(404, "帖子不存在")
+
+    root_result = await db.execute(
+        select(Comment).where(
+            Comment.id == root_id,
+            Comment.post_id == post_id,
+            Comment.is_deleted == False,
+            Comment.parent_id.is_(None),
+        )
+    )
+    root = root_result.scalar_one_or_none()
+    if not root:
+        raise HTTPException(404, "主评论不存在")
+
+    base = select(Comment).where(
+        Comment.post_id == post_id,
+        Comment.is_deleted == False,
+        Comment.parent_id == root_id,
+    )
+    if only_author:
+        base = base.where(Comment.user_id == post.user_id)
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one() or 0
+    result = await db.execute(
+        base.order_by(Comment.created_at).offset((page - 1) * size).limit(size)
+    )
+    rows = result.scalars().all()
+
+    comment_ids = [c.id for c in rows]
+    liked_ids = set()
+    if comment_ids:
+        liked_result = await db.execute(
+            select(Like.target_id).where(
+                Like.user_id == user.id,
+                Like.target_type == "comment",
+                Like.target_id.in_(comment_ids),
+            )
+        )
+        liked_ids = set(liked_result.scalars().all())
+
+    return {
+        "items": [_to_comment_response(c, liked_ids, post.user_id) for c in rows],
+        "page": page,
+        "size": size,
+        "total": int(total),
+        "has_more": page * size < int(total),
+    }
+
+
 @router.post("/{post_id}/comments", response_model=CommentResponse, summary="发表评论")
 async def create_comment(
     post_id: int,
@@ -600,6 +815,7 @@ async def create_comment(
         raise HTTPException(404, "帖子不存在")
 
     parent_id = req.parent_id
+    reply_to_user_id = None
     if parent_id is not None:
         parent_result = await db.execute(
             select(Comment).where(
@@ -608,8 +824,15 @@ async def create_comment(
                 Comment.is_deleted == False,
             )
         )
-        if parent_result.scalar_one_or_none() is None:
+        parent_comment = parent_result.scalar_one_or_none()
+        if parent_comment is None:
             raise HTTPException(400, "回复目标不存在")
+        # 两层结构：所有回复都挂到主楼评论下
+        root_comment = await resolve_comment_root(db, parent_comment)
+        parent_id = root_comment.id
+        # 保留“直接回复对象”，用于消息通知
+        if parent_comment.user_id != user.id:
+            reply_to_user_id = parent_comment.user_id
 
     content = req.content.strip()
     if len(content) < 1 or len(content) > 500:
@@ -629,6 +852,7 @@ async def create_comment(
     comment = Comment(
         post_id=post_id,
         user_id=user.id,
+        reply_to_user_id=reply_to_user_id,
         parent_id=parent_id,
         anon_name=user.nickname or f"同学{user.id}",
         content=content,

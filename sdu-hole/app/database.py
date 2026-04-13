@@ -31,6 +31,7 @@ async def init_db():
         await conn.run_sync(_migrate_user_is_admin_column)
         await conn.run_sync(_migrate_user_password_hash_column)
         await conn.run_sync(_migrate_comment_parent_id_column)
+        await conn.run_sync(_migrate_comment_reply_to_user_id_column)
 
 
 def _migrate_user_nickname_column(sync_conn):
@@ -83,3 +84,16 @@ def _migrate_comment_parent_id_column(sync_conn):
     cols = [c["name"] for c in inspector.get_columns("comments")]
     if "parent_id" not in cols:
         sync_conn.execute(text("ALTER TABLE comments ADD COLUMN parent_id INTEGER"))
+
+
+def _migrate_comment_reply_to_user_id_column(sync_conn):
+    """
+    轻量迁移：确保 comments.reply_to_user_id 列存在（兼容旧库）。
+    """
+    inspector = inspect(sync_conn)
+    if "comments" not in inspector.get_table_names():
+        return
+
+    cols = [c["name"] for c in inspector.get_columns("comments")]
+    if "reply_to_user_id" not in cols:
+        sync_conn.execute(text("ALTER TABLE comments ADD COLUMN reply_to_user_id INTEGER"))
