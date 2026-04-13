@@ -544,6 +544,15 @@
   .comment-children { margin-left:32px; margin-top:8px; border-left:2px solid var(--border-light); padding-left:12px; }
   .comment-child-item { padding:10px 0; border-bottom:1px dashed var(--border-light); }
   .comment-child-item:last-child { border-bottom:none; }
+  .comment-thread-toggle {
+    margin:6px 0 4px 32px;
+    border:none;
+    background:transparent;
+    color:var(--accent);
+    font-size:12px;
+    cursor:pointer;
+  }
+  .comment-thread-toggle:hover { text-decoration:underline; }
   .comment-quote {
     margin:0 0 6px;
     padding:6px 8px;
@@ -800,6 +809,7 @@ let state = {
     zoom: 1,
   },
   pendingCommentId: null,
+  commentThreadExpanded: {},
   detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
   meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
@@ -971,6 +981,7 @@ function openDetailPage(post) {
   state.page = "detail";
   replyTargetCommentId = null;
   replyTargetPreview = null;
+  state.commentThreadExpanded = {};
   state.detailOnlyAuthor = false;
   syncPostQuery(post?.id || null);
   render();
@@ -2784,39 +2795,7 @@ async function refreshNotifications(force = false) {
   if (!force && (now - (state.lastNoticeRefreshAt || 0) < 30000)) return;
   state.lastNoticeRefreshAt = now;
   try {
-    const [mine, adminEvents] = await Promise.all([
-      apiFetch("/api/posts/?mine=true&order=new&page=1&size=50"),
-      apiFetch("/api/auth/moderation-events?page=1&size=20").catch(() => []),
-    ]);
-    const items = [];
-    for (const p of mine) {
-      if (p.comment_count <= 0) continue;
-      try {
-        const cs = await apiFetch(`/api/posts/${p.id}/comments?page=1&size=50`);
-        cs.forEach(c => {
-          if (!c.is_author) {
-            items.push({
-              id: `${p.id}-${c.id}`,
-              type: "comment",
-              created_at: c.created_at,
-              post_id: p.id,
-              comment_id: c.id,
-              text: `${c.anon_name} 评论了你的帖子（${formatHoleNo(p.id, p.created_at)}）`,
-            });
-          }
-        });
-      } catch (_) {}
-    }
-    for (const e of (adminEvents || [])) {
-      if (String(e.scene || "") !== "admin_report_result") continue;
-      items.push({
-        id: `report-${e.id}`,
-        type: "report_result",
-        created_at: e.created_at,
-        post_id: null,
-        text: `📩 举报处理反馈：${e.reason || "管理员已处理你的举报"}`,
-      });
-    }
+    const items = await apiFetch("/api/auth/notifications?page=1&size=60");
     items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const hidden = new Set((state.hiddenNoticeIds || []).map(x => String(x)));
     state.notifications = items.filter(n => !hidden.has(String(n.id))).slice(0, 30);
@@ -3546,6 +3525,7 @@ function bindDetail() {
 async function loadComments() {
   const list = document.getElementById("comments-list");
   const countEl = document.getElementById("comment-count");
+  const DEFAULT_CHILDREN_COLLAPSE = 3;
   try {
     state.comments = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`);
     const allComments = state.comments;
@@ -3555,14 +3535,36 @@ async function loadComments() {
       list.innerHTML = `<div class="empty-state">${state.detailOnlyAuthor ? "楼主暂未回复，已切到“只看楼主”" : "还没有回复，来说两句吧 ✍️"}</div>`;
     } else {
       const byId = new Map(showComments.map(c => [c.id, c]));
-      const roots = showComments.filter(c => !c.parent_id || !byId.has(c.parent_id));
-      const childrenMap = new Map();
+      const rootMemo = new Map();
+      const getRootId = (commentId) => {
+        if (rootMemo.has(commentId)) return rootMemo.get(commentId);
+        let cur = byId.get(commentId);
+        if (!cur) return commentId;
+        const seen = new Set();
+        while (cur && cur.parent_id && byId.has(cur.parent_id) && !seen.has(cur.parent_id)) {
+          seen.add(cur.parent_id);
+          cur = byId.get(cur.parent_id);
+        }
+        const rid = cur?.id || commentId;
+        rootMemo.set(commentId, rid);
+        return rid;
+      };
+      const roots = showComments.filter(c => getRootId(c.id) === c.id);
+      const threadChildren = new Map();
       showComments.forEach(c => {
-        if (!c.parent_id || !byId.has(c.parent_id)) return;
-        const arr = childrenMap.get(c.parent_id) || [];
+        const rid = getRootId(c.id);
+        if (rid === c.id) return;
+        const arr = threadChildren.get(rid) || [];
         arr.push(c);
-        childrenMap.set(c.parent_id, arr);
+        threadChildren.set(rid, arr);
       });
+      threadChildren.forEach((arr, rid) => {
+        arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      });
+      if (Number.isFinite(state.pendingCommentId) && byId.has(state.pendingCommentId)) {
+        const rootId = getRootId(state.pendingCommentId);
+        state.commentThreadExpanded[rootId] = true;
+      }
 
       const renderCommentRow = (c, floor, isChild = false) => `
         <div class="${isChild ? "comment-child-item" : "comment-item"}" data-comment-id="${c.id}" style="animation-delay:${floor*40}ms">
@@ -3588,12 +3590,21 @@ async function loadComments() {
       list.innerHTML = roots.map(root => {
         floor += 1;
         const rootHtml = renderCommentRow(root, floor, false);
-        const children = (childrenMap.get(root.id) || []).map(child => {
+        const allChildren = threadChildren.get(root.id) || [];
+        const expanded = !!state.commentThreadExpanded[root.id];
+        const visibleChildren = expanded ? allChildren : allChildren.slice(0, DEFAULT_CHILDREN_COLLAPSE);
+        const children = visibleChildren.map(child => {
           floor += 1;
           return renderCommentRow(child, floor, true);
         }).join("");
         const childWrap = children ? `<div class="comment-children">${children}</div>` : "";
-        return `${rootHtml}${childWrap}`;
+        const hiddenCount = Math.max(0, allChildren.length - visibleChildren.length);
+        const toggleHtml = allChildren.length > DEFAULT_CHILDREN_COLLAPSE
+          ? `<button class="comment-thread-toggle" data-toggle-thread="${root.id}">
+              ${hiddenCount > 0 ? `展开 ${hiddenCount} 条回复` : "收起回复"}
+            </button>`
+          : "";
+        return `${rootHtml}${childWrap}${toggleHtml}`;
       }).join("");
       bindCommentActions();
       if (Number.isFinite(state.pendingCommentId)) {
@@ -3618,6 +3629,15 @@ async function loadComments() {
 function bindCommentActions() {
   const list = document.getElementById("comments-list");
   if (!list) return;
+
+  list.querySelectorAll("[data-toggle-thread]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rid = parseInt(btn.dataset.toggleThread || "", 10);
+      if (!Number.isFinite(rid)) return;
+      state.commentThreadExpanded[rid] = !state.commentThreadExpanded[rid];
+      loadComments();
+    });
+  });
 
   list.querySelectorAll("[data-like-comment]").forEach(btn => {
     btn.addEventListener("click", async () => {

@@ -4,12 +4,15 @@ import time
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, desc
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
 from app.models.appeal import Appeal
 from app.models.moderation_log import ModerationLog
+from app.models.post import Post
+from app.models.comment import Comment
 from app.schemas.auth import (
     SendCodeRequest,
     VerifyRequest,
@@ -368,6 +371,105 @@ async def me(user: User = Depends(get_current_user)):
         has_password=bool((user.password_hash or "").strip()),
         is_admin=bool(user.is_admin),
     )
+
+
+@router.get("/notifications", summary="查看我的消息通知")
+async def my_notifications(
+    page: int = 1,
+    size: int = 30,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    size = max(1, min(size, 100))
+    page = max(1, page)
+
+    # 1) 他人评论了我的帖子
+    post_comment_rows = await db.execute(
+        select(Comment, Post)
+        .join(Post, Post.id == Comment.post_id)
+        .where(
+            Post.user_id == user.id,
+            Post.is_deleted == False,
+            Comment.is_deleted == False,
+            Comment.user_id != user.id,
+        )
+        .order_by(desc(Comment.created_at))
+        .limit(500)
+    )
+
+    # 2) 他人回复了我的评论
+    parent_comment = aliased(Comment)
+    child_comment = aliased(Comment)
+    reply_rows = await db.execute(
+        select(child_comment, parent_comment, Post)
+        .join(parent_comment, child_comment.parent_id == parent_comment.id)
+        .join(Post, Post.id == child_comment.post_id)
+        .where(
+            parent_comment.user_id == user.id,
+            parent_comment.is_deleted == False,
+            child_comment.is_deleted == False,
+            child_comment.user_id != user.id,
+            Post.is_deleted == False,
+        )
+        .order_by(desc(child_comment.created_at))
+        .limit(500)
+    )
+
+    # 3) 管理处理反馈（沿用 moderation 日志）
+    moderation_rows = await db.execute(
+        select(ModerationLog)
+        .where(
+            ModerationLog.user_id == user.id,
+            ModerationLog.scene == "admin_report_result",
+        )
+        .order_by(desc(ModerationLog.created_at))
+        .limit(200)
+    )
+
+    items: list[dict] = []
+    by_comment_notice_id: dict[str, dict] = {}
+
+    for c, p in post_comment_rows.all():
+        nid = f"c-{c.id}"
+        by_comment_notice_id[nid] = {
+            "id": nid,
+            "type": "post_comment",
+            "created_at": c.created_at,
+            "post_id": c.post_id,
+            "comment_id": c.id,
+            "text": f"{(c.anon_name or '同学')} 评论了你的帖子",
+        }
+
+    for child, parent, p in reply_rows.all():
+        nid = f"c-{child.id}"
+        # 同一条评论如果既是“评论帖子”又是“回复评论”，优先展示“回复评论”
+        by_comment_notice_id[nid] = {
+            "id": nid,
+            "type": "comment_reply",
+            "created_at": child.created_at,
+            "post_id": child.post_id,
+            "comment_id": child.id,
+            "text": f"{(child.anon_name or '同学')} 回复了你的评论",
+        }
+
+    items.extend(by_comment_notice_id.values())
+
+    for r in moderation_rows.scalars().all():
+        items.append(
+            {
+                "id": f"m-{r.id}",
+                "type": "report_result",
+                "created_at": r.created_at,
+                "post_id": None,
+                "comment_id": None,
+                "text": f"📩 举报处理反馈：{r.reason or '管理员已处理你的举报'}",
+            }
+        )
+
+    items.sort(key=lambda x: x.get("created_at") or datetime.min, reverse=True)
+    start = (page - 1) * size
+    end = start + size
+    return items[start:end]
 
 
 @router.get("/moderation-events", summary="查看我的治理记录")
