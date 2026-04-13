@@ -3390,7 +3390,6 @@ function showDetailComposer(focusInput = true) {
   state.detailComposerOpen = true;
   if (bar) bar.classList.remove("hidden");
   if (nav) nav.classList.add("hidden");
-  document.body.classList.remove("has-bottom-nav");
   if (focusInput && input) input.focus();
 }
 
@@ -3401,7 +3400,6 @@ function hideDetailComposer(clearReply = true) {
   if (bar) bar.classList.add("hidden");
   if (state.page === "detail" && state.selectedPost) {
     if (nav) nav.classList.remove("hidden");
-    document.body.classList.add("has-bottom-nav");
   }
   if (clearReply) {
     replyTargetCommentId = null;
@@ -3526,7 +3524,6 @@ function bindDetail() {
     detailCommentBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       showDetailComposer(true);
-      document.getElementById("comments-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
