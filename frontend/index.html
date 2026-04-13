@@ -544,9 +544,13 @@
     .me-stats { gap:12px; justify-content:space-between; }
   }
   @media (max-width:900px){
-    .feed-search-row { flex-wrap:wrap; }
-    .feed-search-row .search-input { width:100%; flex-basis:100%; }
-    .feed-search-row .btn-outline { padding:7px 10px; }
+    .feed-search-row { flex-wrap:nowrap; align-items:center; }
+    .feed-search-row .search-input { flex:1; min-width:0; width:auto; flex-basis:auto; }
+    .feed-search-row .btn-outline {
+      width:40px; height:40px; padding:0;
+      display:inline-flex; align-items:center; justify-content:center;
+      font-size:16px; line-height:1;
+    }
     .mobile-nav { display:block !important; }
     .fab { display:none; }
     .comment-bar { bottom:66px; }
@@ -3934,8 +3938,18 @@ async function loadMoreReplies(rootId) {
 async function loadAllRepliesForRoot(rootId) {
   const thread = state.commentThreads.find(t => Number(t.root?.id) === Number(rootId));
   if (!thread) return;
-  while (thread.has_more_replies) {
-    await loadMoreReplies(rootId);
+  try {
+    const data = await apiFetch(
+      `/api/posts/${state.selectedPost.id}/comment-threads/${rootId}/replies?full=true&only_author=${state.detailOnlyAuthor ? "true" : "false"}`
+    );
+    thread.replies = data.items || [];
+    thread.replies_page = 1;
+    thread.loaded_replies = Number(data.total || thread.replies.length || 0);
+    thread.total_replies = Number(data.total || thread.replies.length || 0);
+    thread.has_more_replies = false;
+    renderCommentThreads();
+  } catch (e) {
+    showToast(e.message || "加载全部回复失败");
   }
 }
 

@@ -748,6 +748,7 @@ async def list_comment_thread_replies(
     root_id: int,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    full: bool = Query(False, description="是否一次返回全部回复"),
     only_author: bool = Query(False, description="仅看楼主评论"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -800,9 +801,13 @@ async def list_comment_thread_replies(
 
     descendants.sort(key=lambda x: x.created_at)
     total = len(descendants)
-    start = max(0, total - page * size)
-    end = total - (page - 1) * size
-    rows = descendants[start:end] if total > 0 else []
+    if full:
+        rows = descendants
+    else:
+        # 兼容当前前端分页：以“最新优先窗口”取片段，再按时间正序展示
+        start = max(0, total - page * size)
+        end = total - (page - 1) * size
+        rows = descendants[start:end] if total > 0 else []
 
     comment_ids = [c.id for c in rows]
     liked_ids = set()
@@ -821,7 +826,7 @@ async def list_comment_thread_replies(
         "page": page,
         "size": size,
         "total": int(total),
-        "has_more": page * size < int(total),
+        "has_more": (False if full else (page * size < int(total))),
     }
 
 
