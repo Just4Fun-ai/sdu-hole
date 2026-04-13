@@ -1286,8 +1286,13 @@ function validateStudentIdClient(sid) {
 // ============================================================
 function render() {
   const app = document.getElementById("app");
+  const detailComposerActive =
+    state.page === "detail" &&
+    !!state.selectedPost &&
+    !!state.detailComposerOpen;
   const shouldShowBottomNav =
     !!state.token &&
+    !detailComposerActive &&
     (
       state.page === "feed" ||
       state.page === "me" ||
@@ -1959,8 +1964,9 @@ function renderMobileNav(active = "feed") {
   const badge = state.unreadNoticeCount > 0
     ? `<span class="mobile-nav-badge">${Math.min(state.unreadNoticeCount, 99)}</span>`
     : "";
+  const hideNav = active === "detail" && !!state.detailComposerOpen;
   return `
-    <div class="mobile-nav">
+    <div class="mobile-nav ${hideNav ? "hidden" : ""}">
       <div class="mobile-nav-wrap">
         <button class="mobile-nav-btn ${active==="feed"?"active":""}" id="mnav-home">首页</button>
         <button class="mobile-nav-btn center" id="mnav-new">✏️</button>
@@ -3380,15 +3386,23 @@ function renderDetail() {
 function showDetailComposer(focusInput = true) {
   const bar = document.getElementById("detail-comment-bar");
   const input = document.getElementById("comment-input");
+  const nav = document.querySelector(".mobile-nav");
   state.detailComposerOpen = true;
   if (bar) bar.classList.remove("hidden");
+  if (nav) nav.classList.add("hidden");
+  document.body.classList.remove("has-bottom-nav");
   if (focusInput && input) input.focus();
 }
 
 function hideDetailComposer(clearReply = true) {
   const bar = document.getElementById("detail-comment-bar");
+  const nav = document.querySelector(".mobile-nav");
   state.detailComposerOpen = false;
   if (bar) bar.classList.add("hidden");
+  if (state.page === "detail" && state.selectedPost) {
+    if (nav) nav.classList.remove("hidden");
+    document.body.classList.add("has-bottom-nav");
+  }
   if (clearReply) {
     replyTargetCommentId = null;
     replyTargetPreview = null;
