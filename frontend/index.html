@@ -816,6 +816,7 @@ let state = {
   },
   pendingCommentId: null,
   commentThreadExpanded: {},
+  detailComposerOpen: false,
   commentThreads: [],
   commentThreadPage: 1,
   commentThreadHasMore: false,
@@ -823,7 +824,7 @@ let state = {
   detailBackCtx: null, // { page, meTab, selectedPost, detailOnlyAuthor }
   meBackCtx: null,     // { page, meTab, selectedPost, detailOnlyAuthor }
 };
-let detailCommentBarScrollHandler = null;
+let detailComposerDocClickHandler = null;
 
 function applyTouchLayoutClass() {
   try {
@@ -997,6 +998,7 @@ function openDetailPage(post) {
   state.commentThreadPage = 1;
   state.commentThreadHasMore = false;
   state.commentThreadLoadingMore = false;
+  state.detailComposerOpen = false;
   state.detailOnlyAuthor = false;
   syncPostQuery(post?.id || null);
   render();
@@ -3360,7 +3362,7 @@ function renderDetail() {
       </div>
       <div style="height:80px"></div>
     </div>
-    <div class="comment-bar">
+    <div class="comment-bar ${state.detailComposerOpen ? "" : "hidden"}" id="detail-comment-bar">
       <div id="reply-hint" style="font-size:12px;color:var(--text2);margin-bottom:6px;${replyTargetCommentId ? '' : 'display:none;'}">
         正在回复 #${replyTargetCommentId || ""}${replyTargetPreview?.anon_name ? ` · ${escapeHTML(replyTargetPreview.anon_name)}` : ""} <button class="resend-btn" id="btn-cancel-reply" style="margin-left:8px">取消</button>
       </div>
@@ -3375,38 +3377,24 @@ function renderDetail() {
     ${renderMobileNav("detail")}`;
 }
 
-function setupDetailCommentBarAutoHide() {
-  const bar = document.querySelector(".comment-bar");
+function showDetailComposer(focusInput = true) {
+  const bar = document.getElementById("detail-comment-bar");
   const input = document.getElementById("comment-input");
-  if (!bar || !input) return;
+  state.detailComposerOpen = true;
+  if (bar) bar.classList.remove("hidden");
+  if (focusInput && input) input.focus();
+}
 
-  if (detailCommentBarScrollHandler) {
-    window.removeEventListener("scroll", detailCommentBarScrollHandler);
-    detailCommentBarScrollHandler = null;
+function hideDetailComposer(clearReply = true) {
+  const bar = document.getElementById("detail-comment-bar");
+  state.detailComposerOpen = false;
+  if (bar) bar.classList.add("hidden");
+  if (clearReply) {
+    replyTargetCommentId = null;
+    replyTargetPreview = null;
+    const hint = document.getElementById("reply-hint");
+    if (hint) hint.style.display = "none";
   }
-
-  let lastY = window.scrollY || 0;
-  const showBar = () => bar.classList.remove("auto-hidden");
-  const hideBar = () => bar.classList.add("auto-hidden");
-
-  detailCommentBarScrollHandler = () => {
-    if (state.page !== "detail") return;
-    if (document.activeElement === input) {
-      showBar();
-      return;
-    }
-    const y = window.scrollY || 0;
-    const dy = y - lastY;
-    if (y <= 120 || dy < -5) showBar();
-    else if (dy > 8) hideBar();
-    lastY = y;
-  };
-
-  window.addEventListener("scroll", detailCommentBarScrollHandler, { passive: true });
-  input.addEventListener("focus", showBar);
-  input.addEventListener("blur", () => {
-    if ((window.scrollY || 0) > 180) hideBar();
-  });
 }
 
 function bindDetail() {
@@ -3414,7 +3402,10 @@ function bindDetail() {
     goBackFromDetail();
   });
   document.getElementById("btn-send-comment").addEventListener("click", submitComment);
-  setupDetailCommentBarAutoHide();
+  if (detailComposerDocClickHandler) {
+    document.removeEventListener("click", detailComposerDocClickHandler, true);
+    detailComposerDocClickHandler = null;
+  }
   const commentInputEl = document.getElementById("comment-input");
   const draftKey = getDraftKeyForComment(state.selectedPost.id);
   const draftVal = localStorage.getItem(draftKey) || "";
@@ -3518,11 +3509,23 @@ function bindDetail() {
   }
   const detailCommentBtn = document.getElementById("detail-comment-btn");
   if (detailCommentBtn) {
-    detailCommentBtn.addEventListener("click", () => {
-      document.getElementById("comment-input")?.focus();
+    detailCommentBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showDetailComposer(true);
       document.getElementById("comments-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
+
+  detailComposerDocClickHandler = (e) => {
+    if (state.page !== "detail" || !state.detailComposerOpen) return;
+    const t = e.target;
+    if (!t) return;
+    if (t.closest?.("#detail-comment-bar")) return;
+    if (t.closest?.("#detail-comment-btn")) return;
+    if (t.closest?.("[data-reply-comment]")) return;
+    hideDetailComposer(false);
+  };
+  document.addEventListener("click", detailComposerDocClickHandler, true);
 
   const reportBtn = document.getElementById("detail-report-btn");
   if (reportBtn) {
@@ -3783,6 +3786,7 @@ function bindCommentActions() {
 
   list.querySelectorAll("[data-reply-comment]").forEach(btn => {
     btn.addEventListener("click", () => {
+      showDetailComposer(false);
       replyTargetCommentId = parseInt(btn.dataset.replyComment);
       const target = state.comments.find(x => x.id === replyTargetCommentId);
       const prefix = buildReplyPrefix(target || {});
@@ -3856,6 +3860,7 @@ async function submitComment() {
     if (inList) inList.comment_count = state.selectedPost.comment_count;
     const detailCommentCount = document.getElementById("detail-comment-count");
     if (detailCommentCount) detailCommentCount.textContent = String(state.selectedPost.comment_count);
+    hideDetailComposer(true);
     showToast("评论已发布");
   } catch(e) {
     alert(moderationFriendlyMessage(e.message));
