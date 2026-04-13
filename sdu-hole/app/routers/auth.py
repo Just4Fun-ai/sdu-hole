@@ -31,6 +31,7 @@ from app.utils.security import (
     hash_password,
     verify_password,
     build_client_fingerprint,
+    _extract_client_ip as extract_client_ip,
 )
 from app.utils.nickname import validate_nickname, generate_random_nickname
 from app.services.filter import check_content
@@ -61,15 +62,6 @@ _COMMON_WEAK_PASSWORDS = {
     "admin",
     "iloveyou",
 }
-
-
-def _extract_client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
 
 
 def _prune_hits(store: dict[str, list[float]], key: str, window_seconds: int, now: float):
@@ -134,7 +126,7 @@ async def send_code(
     sid = req.student_id.strip()
     _validate_student_id_format(sid)
     now = time.time()
-    client_ip = _extract_client_ip(request)
+    client_ip = extract_client_ip(request)
 
     # IP 级限流
     ip_hits = _prune_hits(

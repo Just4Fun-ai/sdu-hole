@@ -57,7 +57,7 @@ def _extract_client_ip(request: Request) -> str:
         return xff.split(",")[0].strip()
     if request.client and request.client.host:
         return request.client.host
-    return ""
+    return "unknown"
 
 
 def _ip_network_fingerprint(ip_str: str) -> str:

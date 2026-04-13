@@ -1,6 +1,6 @@
 # SDU Treehole Monorepo
 
-项目已按常见习惯整理为前后端分层结构：
+山大树洞 — 山东大学匿名校园社区
 
 ## 目录结构
 
@@ -9,7 +9,6 @@
   - `deploy-config.js`：线上 API 基地址注入文件
   - `user-agreement.html`：用户协议
   - `privacy-policy.html`：隐私政策
-  - `dev/sdu-hole-frontend.jsx`：历史前端实验稿（开发参考）
 - `sdu-hole/`
   - `app/`：FastAPI 后端代码
   - `.env.example`：环境变量模板
@@ -19,10 +18,9 @@
 - `DEPLOY_CN_IP.md`
   - 国内 IP 上线说明
 
-## 运行与发布（当前）
+## 运行与发布
 
 - 本地开发后端：进入 `sdu-hole/` 启动 `uvicorn`
 - 服务器发布：执行 `deploy/cn-ip/push_to_server.sh`
   - 脚本会把 `frontend/index.html` 同步到服务器 `/var/www/sdu-hole/index.html`
   - 自动保留线上 `.env` 与数据库，不覆盖生产数据
-

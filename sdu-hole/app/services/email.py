@@ -1,7 +1,7 @@
 import random
 import socket
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import aiosmtplib
@@ -100,7 +100,7 @@ def _format_smtp_error(error: Exception) -> str:
 
 async def create_and_send_code(db: AsyncSession, email: str) -> str:
     """生成验证码 -> 入库 -> 发送（持久化，重启不丢）"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     min_interval = settings.SEND_CODE_MIN_INTERVAL_SECONDS
     result = await db.execute(
         select(EmailCode)
@@ -110,7 +110,10 @@ async def create_and_send_code(db: AsyncSession, email: str) -> str:
     )
     latest = result.scalar_one_or_none()
     if latest:
-        elapsed = (now - (latest.created_at or now)).total_seconds()
+        created = latest.created_at
+        if created and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        elapsed = (now - (created or now)).total_seconds()
         if elapsed < min_interval:
             raise ValueError(f"请求过于频繁，请{min_interval}秒后重试")
 
@@ -138,7 +141,7 @@ async def verify_code(
     db: AsyncSession, email: str, code: str
 ) -> tuple[bool, Literal["ok", "invalid", "expired", "not_found"]]:
     """校验验证码，并返回失败原因。"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(EmailCode)
         .where(EmailCode.email == email, EmailCode.used_at.is_(None))
@@ -149,7 +152,10 @@ async def verify_code(
     if not latest:
         return False, "not_found"
 
-    if latest.expire_at < now:
+    expire_at = latest.expire_at
+    if expire_at and expire_at.tzinfo is None:
+        expire_at = expire_at.replace(tzinfo=timezone.utc)
+    if expire_at < now:
         latest.used_at = now
         return False, "expired"
 
