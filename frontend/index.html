@@ -3931,16 +3931,28 @@ async function loadMoreReplies(rootId) {
   }
 }
 
+async function loadAllRepliesForRoot(rootId) {
+  const thread = state.commentThreads.find(t => Number(t.root?.id) === Number(rootId));
+  if (!thread) return;
+  while (thread.has_more_replies) {
+    await loadMoreReplies(rootId);
+  }
+}
+
 function bindCommentActions() {
   const list = document.getElementById("comments-list");
   if (!list) return;
 
   list.querySelectorAll("[data-toggle-thread]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const rid = parseInt(btn.dataset.toggleThread || "", 10);
       if (!Number.isFinite(rid)) return;
-      state.commentThreadExpanded[rid] = !state.commentThreadExpanded[rid];
+      const toExpand = !state.commentThreadExpanded[rid];
+      state.commentThreadExpanded[rid] = toExpand;
       renderCommentThreads();
+      if (toExpand) {
+        await loadAllRepliesForRoot(rid);
+      }
     });
   });
 
