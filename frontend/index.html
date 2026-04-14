@@ -3669,7 +3669,7 @@ function renderCommentBodyHTML(content) {
   const cleanBody = extractCommentPlainBody(q.body || "");
   return `
     <div style="padding-left:32px">
-      <div class="comment-quote">${escapeHTML(cleanExcerpt || "（已引用）")}</div>
+      <div class="comment-quote">${escapeHTML(cleanExcerpt || "引用内容已被删除")}</div>
       <div style="font-size:14px;line-height:1.7">${escapeHTML(cleanBody)}</div>
     </div>
   `;
