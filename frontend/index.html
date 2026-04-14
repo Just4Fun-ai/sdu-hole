@@ -1304,7 +1304,7 @@ function renderPostImagesPreview(post, inDetail = false) {
   if (!urls.length) return "";
   if (!inDetail) {
     const show = urls.slice(0, 3);
-    return `<div class="post-image-strip">${show.map((u, idx) => `<img class="post-image-thumb" src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy">`).join("")}</div>`;
+    return `<div class="post-image-strip">${show.map((u, idx) => `<img class="post-image-thumb lazy-post-img" data-src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy" alt="post-image">`).join("")}</div>`;
   }
   return `<div class="detail-images">${urls.map((u, idx) => `<img src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy">`).join("")}</div>`;
 }
@@ -1734,6 +1734,17 @@ function bindLogin() {
       loginCode = code.value.replace(/\D/g,"").slice(0,6);
       code.value = loginCode;
       btn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
+    });
+    code.addEventListener("paste", (e) => {
+      const txt = (e.clipboardData?.getData("text") || "").replace(/\D/g, "").slice(0, 6);
+      if (!txt) return;
+      e.preventDefault();
+      loginCode = txt;
+      code.value = txt;
+      btn.disabled = loginCode.length !== 6 || !loginAgreementAccepted;
+      if (loginCode.length === 6 && loginAgreementAccepted && !btn.disabled) {
+        setTimeout(() => verifyCode(), 0);
+      }
     });
     code.addEventListener("keydown", e => { if(e.key==="Enter") btn.click(); });
     applyAgreementState();
@@ -2617,7 +2628,11 @@ async function loadPosts(opts = { append: false, preserveList: false }) {
         return;
       }
     }
-    renderPostList();
+    if (normalized.append) {
+      appendPostsToList(rows);
+    } else {
+      renderPostList();
+    }
     setupInfiniteScroll();
   } catch(e) {
     if (list) list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}<br><button class="btn-outline" style="margin-top:10px;border-color:var(--danger);color:var(--danger)" onclick="loadPosts()">重试</button></div>`;
@@ -2659,6 +2674,17 @@ function filteredPosts() {
     const text = `${p.tag}\n${p.content}\n${p.anon_name}\n${holeNo}\n${holeCompact}\n${p.id}`.toLowerCase();
     return text.includes(keyword);
   });
+}
+
+function postMatchesCurrentFilter(post) {
+  if (!post || isBlockedPost(post)) return false;
+  const { tag, keyword } = parseSearchQuery(state.keyword);
+  if (tag && tag !== "全部" && post.tag !== tag) return false;
+  if (!keyword) return true;
+  const holeNo = formatHoleNo(post.id, post.created_at).toLowerCase();
+  const holeCompact = holeNo.replace(/[^a-z0-9]/g, "");
+  const text = `${post.tag}\n${post.content}\n${post.anon_name}\n${holeNo}\n${holeCompact}\n${post.id}`.toLowerCase();
+  return text.includes(keyword);
 }
 
 function reviewMetaHTML(post) {
@@ -2733,11 +2759,15 @@ function bindDoubleTapLike(el, postId) {
 
 function bindPostListInteractions(list) {
   list.querySelectorAll(".post-card").forEach(el => {
+    if (el.dataset.boundCard === "1") return;
+    el.dataset.boundCard = "1";
     const id = parseInt(el.dataset.id);
     bindDoubleTapLike(el, id);
   });
 
   list.querySelectorAll("[data-goto]").forEach(btn => {
+    if (btn.dataset.boundGoto === "1") return;
+    btn.dataset.boundGoto = "1";
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.goto, 10);
@@ -2751,6 +2781,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-like]").forEach(btn => {
+    if (btn.dataset.boundLike === "1") return;
+    btn.dataset.boundLike = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.like);
@@ -2766,6 +2798,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-fav]").forEach(btn => {
+    if (btn.dataset.boundFav === "1") return;
+    btn.dataset.boundFav = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.fav);
@@ -2786,6 +2820,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-report-post]").forEach(btn => {
+    if (btn.dataset.boundReport === "1") return;
+    btn.dataset.boundReport = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.reportPost);
@@ -2800,6 +2836,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-delete-post]").forEach(btn => {
+    if (btn.dataset.boundDelete === "1") return;
+    btn.dataset.boundDelete = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.deletePost);
@@ -2815,6 +2853,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-admin-delete-post]").forEach(btn => {
+    if (btn.dataset.boundAdminDelete === "1") return;
+    btn.dataset.boundAdminDelete = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.adminDeletePost);
@@ -2831,6 +2871,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-ban-author]").forEach(btn => {
+    if (btn.dataset.boundBan === "1") return;
+    btn.dataset.boundBan = "1";
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.banAuthor);
@@ -2846,6 +2888,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-expand-post]").forEach(btn => {
+    if (btn.dataset.boundExpand === "1") return;
+    btn.dataset.boundExpand = "1";
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const postId = parseInt(btn.dataset.expandPost, 10);
@@ -2856,6 +2900,8 @@ function bindPostListInteractions(list) {
   });
 
   list.querySelectorAll("[data-open-img]").forEach(img => {
+    if (img.dataset.boundOpenImg === "1") return;
+    img.dataset.boundOpenImg = "1";
     img.addEventListener("click", (e) => {
       e.stopPropagation();
       const card = img.closest(".post-card");
@@ -2865,6 +2911,39 @@ function bindPostListInteractions(list) {
       const idx = parseInt(img.dataset.imgIndex || "0", 10) || 0;
       openImageViewer(urls, idx);
     });
+  });
+}
+
+let _postImageObserver = null;
+function setupLazyPostImages(root = document) {
+  const imgs = Array.from(root.querySelectorAll?.(".lazy-post-img[data-src]") || []);
+  if (!imgs.length) return;
+
+  if (!_postImageObserver && "IntersectionObserver" in window) {
+    _postImageObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const img = entry.target;
+        const src = img.getAttribute("data-src");
+        if (src) {
+          img.setAttribute("src", src);
+          img.removeAttribute("data-src");
+        }
+        _postImageObserver.unobserve(img);
+      });
+    }, { rootMargin: "320px" });
+  }
+
+  imgs.forEach((img) => {
+    if (!_postImageObserver) {
+      const src = img.getAttribute("data-src");
+      if (src) {
+        img.setAttribute("src", src);
+        img.removeAttribute("data-src");
+      }
+      return;
+    }
+    _postImageObserver.observe(img);
   });
 }
 
@@ -3456,6 +3535,54 @@ function renderPostList() {
     </div>
   `).join("");
   bindPostListInteractions(list);
+  setupLazyPostImages(list);
+}
+
+function appendPostsToList(rows) {
+  const list = document.getElementById("post-list");
+  if (!list || !Array.isArray(rows) || rows.length === 0) return;
+  if (state.posts.length === rows.length) {
+    // 首次 append 不成立，直接走全量渲染避免状态错乱
+    renderPostList();
+    return;
+  }
+  if (!list.querySelector(".post-card")) {
+    renderPostList();
+    return;
+  }
+
+  const appendable = rows.filter(postMatchesCurrentFilter);
+  if (!appendable.length) return;
+  const startIdx = list.querySelectorAll(".post-card").length;
+  const html = appendable.map((p, i) => `
+    <div class="post-card" data-id="${p.id}" style="animation-delay:${(startIdx + i)*60}ms">
+      <div class="post-header">
+        <div class="anon-info">
+          ${avatarHTML(p.id, p.anon_name)}
+          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(compactAnonName(p.anon_name))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
+        </div>
+        ${tagChipHTML(p.tag)}
+      </div>
+      ${reviewMetaHTML(p)}
+      ${renderPostImagesPreview(p, false)}
+      ${postContentHTML(p)}
+      <div class="post-actions">
+        <button class="action-btn ${p.is_liked?"liked":""}" data-like="${p.id}">${p.is_liked?"❤️":"🤍"} <span class="like-count">${p.like_count}</span></button>
+        <button class="action-btn" data-goto="${p.id}">💬 ${p.comment_count}</button>
+        <button class="action-btn ${p.is_favorited?"liked":""}" data-fav="${p.id}">⭐ <span class="fav-count">${Number(p.favorite_count || 0)}</span></button>
+        <button class="action-btn warn" data-report-post="${p.id}">🚩 举报</button>
+        ${p.is_mine ? `<button class="action-btn warn" data-delete-post="${p.id}">删除</button>` : ""}
+      </div>
+      ${state.isAdmin ? `
+      <div class="post-actions admin-tools">
+        ${state.isAdmin ? `<button class="action-btn warn" data-admin-delete-post="${p.id}">🛠 管理删帖</button>` : ""}
+        ${state.isAdmin && !p.is_mine ? `<button class="action-btn warn" data-ban-author="${p.id}">⛔ 禁言作者</button>` : ""}
+      </div>` : ""}
+    </div>
+  `).join("");
+  list.insertAdjacentHTML("beforeend", html);
+  bindPostListInteractions(list);
+  setupLazyPostImages(list);
 }
 
 function detailContentHTML(post) {
@@ -3835,7 +3962,7 @@ async function loadComments() {
 
 function renderCommentThreads() {
   const list = document.getElementById("comments-list");
-  const DEFAULT_CHILDREN_COLLAPSE = 3;
+  const DEFAULT_CHILDREN_COLLAPSE = 1;
   if (!list) return;
   if (!state.commentThreads.length) {
     list.innerHTML = `<div class="empty-state">${state.detailOnlyAuthor ? "楼主暂未回复，已切到“只看楼主”" : "还没有回复，来说两句吧 ✍️"}</div>`;
@@ -4123,12 +4250,24 @@ async function submitComment() {
     content = `${replyTargetPreview.prefix}${cleanRaw}`;
   }
   const btn = document.getElementById("btn-send-comment");
+  if (btn.disabled) return;
   btn.disabled = true; btn.textContent = "...";
+  const submitBody = {content, parent_id: replyTargetCommentId};
+  const sendOnce = () => apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
+    method:"POST",
+    body: submitBody
+  });
   try {
-    const created = await apiFetch(`/api/posts/${state.selectedPost.id}/comments`, {
-      method:"POST",
-      body:{content, parent_id: replyTargetCommentId}
-    });
+    let created;
+    try {
+      created = await sendOnce();
+    } catch (firstErr) {
+      const msg = String(firstErr?.message || "");
+      const shouldRetry = msg.includes("网络连接失败") || msg.includes("请求失败 (5");
+      if (!shouldRetry) throw firstErr;
+      await new Promise((r) => setTimeout(r, 450));
+      created = await sendOnce();
+    }
     if (created?.id) state.pendingCommentId = Number(created.id);
     localStorage.removeItem(getDraftKeyForComment(state.selectedPost.id));
     input.value = "";

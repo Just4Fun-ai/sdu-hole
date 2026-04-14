@@ -264,6 +264,10 @@ async def password_login(req: PasswordLoginRequest, request: Request, db: AsyncS
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=400, detail="账号不存在，请先使用验证码首次登录")
+    if user.is_banned:
+        raise HTTPException(status_code=403, detail="账号已被封禁")
+    if not (user.password_hash or "").strip():
+        raise HTTPException(status_code=400, detail="该账号尚未设置密码，请先使用验证码登录并设置密码")
 
     lock_key = str(user.id)
     blocked_until = _password_block_until.get(lock_key, 0)
@@ -286,7 +290,7 @@ async def password_login(req: PasswordLoginRequest, request: Request, db: AsyncS
                 status_code=429,
                 detail=f"密码错误次数过多，请{settings.VERIFY_BLOCK_SECONDS}秒后再试",
             )
-        raise HTTPException(status_code=400, detail="账号或密码错误")
+        raise HTTPException(status_code=400, detail="密码错误")
 
     _password_fail_hits.pop(lock_key, None)
     _password_block_until.pop(lock_key, None)
