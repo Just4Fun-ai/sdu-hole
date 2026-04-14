@@ -52,12 +52,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def _extract_client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    direct_ip = (request.client.host if request.client and request.client.host else "") or "unknown"
+    if not settings.TRUST_PROXY_HEADERS:
+        return direct_ip
+
+    trusted_proxies = set(settings.trusted_proxy_ips_list)
+    if direct_ip not in trusted_proxies:
+        return direct_ip
+
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if not xff:
+        return direct_ip
+
+    # XFF 取最左侧客户端 IP；格式非法则回退直连 IP
+    forwarded = xff.split(",")[0].strip()
+    try:
+        ipaddress.ip_address(forwarded)
+        return forwarded
+    except ValueError:
+        return direct_ip
 
 
 def _ip_network_fingerprint(ip_str: str) -> str:

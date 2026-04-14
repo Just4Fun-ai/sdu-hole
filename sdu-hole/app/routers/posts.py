@@ -7,6 +7,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy import select, desc, func, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image, UnidentifiedImageError
 
@@ -108,6 +109,27 @@ async def cleanup_post_images(db: AsyncSession, post_id: int):
         except Exception:
             pass
         await db.delete(row)
+
+
+async def _count_post_likes(db: AsyncSession, post_id: int) -> int:
+    result = await db.execute(
+        select(func.count(Like.id)).where(Like.target_type == "post", Like.target_id == post_id)
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _count_comment_likes(db: AsyncSession, comment_id: int) -> int:
+    result = await db.execute(
+        select(func.count(Like.id)).where(Like.target_type == "comment", Like.target_id == comment_id)
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _count_post_favorites(db: AsyncSession, post_id: int) -> int:
+    result = await db.execute(
+        select(func.count(Favorite.id)).where(Favorite.post_id == post_id)
+    )
+    return int(result.scalar_one() or 0)
 
 
 def normalize_display_name(name: str | None, fallback: str) -> str:
@@ -270,6 +292,15 @@ async def list_announcements(
             )
         )
         liked_ids = set(liked_result.scalars().all())
+    favorited_ids = set()
+    if post_ids:
+        favorited_result = await db.execute(
+            select(Favorite.post_id).where(
+                Favorite.user_id == user.id,
+                Favorite.post_id.in_(post_ids),
+            )
+        )
+        favorited_ids = set(favorited_result.scalars().all())
     favorite_count_map = {}
     if post_ids:
         fc_result = await db.execute(
@@ -291,7 +322,7 @@ async def list_announcements(
             created_at=p.created_at,
             is_liked=p.id in liked_ids,
             is_mine=p.user_id == user.id,
-            is_favorited=False,
+            is_favorited=p.id in favorited_ids,
             image_urls=images_map.get(p.id, []),
         )
         for p in posts
@@ -506,12 +537,30 @@ async def toggle_like(
 
     if existing:
         await db.delete(existing)
-        post.like_count = max(0, post.like_count - 1)
-        return {"liked": False, "like_count": post.like_count}
-    else:
+        await db.flush()
+        like_count = await _count_post_likes(db, post_id)
+        post.like_count = like_count
+        return {"liked": False, "like_count": like_count}
+
+    try:
         db.add(Like(user_id=user.id, target_type="post", target_id=post_id))
-        post.like_count += 1
-        return {"liked": True, "like_count": post.like_count}
+        await db.flush()
+        like_count = await _count_post_likes(db, post_id)
+        post.like_count = like_count
+        return {"liked": True, "like_count": like_count}
+    except IntegrityError:
+        # 并发重复点赞：幂等返回成功，不抛 500
+        await db.rollback()
+        post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+        post = post_result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(404, "帖子不存在")
+        like_exists_result = await db.execute(
+            select(Like.id).where(Like.user_id == user.id, Like.target_type == "post", Like.target_id == post_id)
+        )
+        like_count = await _count_post_likes(db, post_id)
+        post.like_count = like_count
+        return {"liked": like_exists_result.scalar_one_or_none() is not None, "like_count": like_count}
 
 
 @router.post("/{post_id}/favorite", summary="收藏/取消收藏")
@@ -532,13 +581,21 @@ async def toggle_favorite(
     existing = fav_result.scalar_one_or_none()
     if existing:
         await db.delete(existing)
-        count_result = await db.execute(select(func.count(Favorite.id)).where(Favorite.post_id == post_id))
-        return {"favorited": False, "favorite_count": int(count_result.scalar_one() or 0)}
+        await db.flush()
+        return {"favorited": False, "favorite_count": await _count_post_favorites(db, post_id)}
 
-    db.add(Favorite(user_id=user.id, post_id=post_id))
-    await db.flush()
-    count_result = await db.execute(select(func.count(Favorite.id)).where(Favorite.post_id == post_id))
-    return {"favorited": True, "favorite_count": int(count_result.scalar_one() or 0)}
+    try:
+        db.add(Favorite(user_id=user.id, post_id=post_id))
+        await db.flush()
+        return {"favorited": True, "favorite_count": await _count_post_favorites(db, post_id)}
+    except IntegrityError:
+        # 并发重复收藏：幂等返回已收藏
+        await db.rollback()
+        post_result = await db.execute(select(Post).where(Post.id == post_id, Post.is_deleted == False))
+        post = post_result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(404, "帖子不存在")
+        return {"favorited": True, "favorite_count": await _count_post_favorites(db, post_id)}
 
 
 @router.delete("/{post_id}", summary="删除自己的帖子")
@@ -957,12 +1014,30 @@ async def toggle_comment_like(
 
     if existing:
         await db.delete(existing)
-        comment.like_count = max(0, comment.like_count - 1)
-        return {"liked": False, "like_count": comment.like_count}
-    else:
+        await db.flush()
+        like_count = await _count_comment_likes(db, comment_id)
+        comment.like_count = like_count
+        return {"liked": False, "like_count": like_count}
+
+    try:
         db.add(Like(user_id=user.id, target_type="comment", target_id=comment_id))
-        comment.like_count += 1
-        return {"liked": True, "like_count": comment.like_count}
+        await db.flush()
+        like_count = await _count_comment_likes(db, comment_id)
+        comment.like_count = like_count
+        return {"liked": True, "like_count": like_count}
+    except IntegrityError:
+        # 并发重复点赞：幂等返回成功，不抛 500
+        await db.rollback()
+        comment_result = await db.execute(select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False))
+        comment = comment_result.scalar_one_or_none()
+        if not comment:
+            raise HTTPException(404, "评论不存在")
+        like_exists_result = await db.execute(
+            select(Like.id).where(Like.user_id == user.id, Like.target_type == "comment", Like.target_id == comment_id)
+        )
+        like_count = await _count_comment_likes(db, comment_id)
+        comment.like_count = like_count
+        return {"liked": like_exists_result.scalar_one_or_none() is not None, "like_count": like_count}
 
 
 @router.post("/{post_id}/report", summary="举报帖子")

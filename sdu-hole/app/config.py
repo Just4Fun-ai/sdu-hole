@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     # 应用
     APP_NAME: str = "山大树洞"
     SECRET_KEY: str = "dev-secret-key-change-in-production"
+    ENVIRONMENT: str = "development"  # development | test | production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7天
 
     # 数据库
@@ -17,6 +18,10 @@ class Settings(BaseSettings):
     # 跨域配置，多个来源用英文逗号分隔
     # 例: https://sdu-hole.vercel.app,https://www.sduhole.com
     CORS_ORIGINS: str = "*"
+    # 仅在可信反向代理后面部署时开启（例如 Nginx/Traefik）
+    TRUST_PROXY_HEADERS: bool = False
+    # 可信代理来源 IP（逗号分隔）
+    TRUSTED_PROXY_IPS: str = "127.0.0.1,::1"
 
     # 学校邮箱
     ALLOWED_EMAIL_SUFFIX: str = "@mail.sdu.edu.cn"
@@ -83,6 +88,29 @@ class Settings(BaseSettings):
     @property
     def admin_student_ids_list(self) -> list[str]:
         return [sid.strip() for sid in self.ADMIN_STUDENT_IDS.split(",") if sid.strip()]
+
+    @property
+    def trusted_proxy_ips_list(self) -> list[str]:
+        return [ip.strip() for ip in self.TRUSTED_PROXY_IPS.split(",") if ip.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
+
+    def validate_runtime_security(self):
+        """
+        生产环境启动前的最小安全校验。
+        """
+        if not self.is_production:
+            return
+
+        key = (self.SECRET_KEY or "").strip()
+        bad_default = key == "dev-secret-key-change-in-production"
+        too_short = len(key) < 32
+        if bad_default or too_short:
+            raise RuntimeError(
+                "生产环境 SECRET_KEY 不安全：请在 .env 中设置长度>=32 的随机密钥"
+            )
 
 
 settings = Settings()

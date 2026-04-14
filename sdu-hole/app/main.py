@@ -12,6 +12,7 @@ from app.services.filter import load_words_from_file
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """启动时初始化数据库"""
+    settings.validate_runtime_security()
     print(f"\n🕳️  {settings.APP_NAME} 正在启动...")
     print(f"📧 邮件模式: {settings.EMAIL_MODE}")
     print(f"🏫 邮箱后缀: {settings.ALLOWED_EMAIL_SUFFIX}")
