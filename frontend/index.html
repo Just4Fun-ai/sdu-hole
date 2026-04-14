@@ -165,13 +165,11 @@
     overflow-x:auto;
     overflow-y:hidden;
     padding:12px 0;
-    scrollbar-width:thin;
-    scrollbar-color:var(--border) transparent;
+    scrollbar-width:none;
+    -ms-overflow-style:none;
     -webkit-overflow-scrolling:touch;
   }
-  .tag-bar::-webkit-scrollbar { height:6px; }
-  .tag-bar::-webkit-scrollbar-track { background:transparent; }
-  .tag-bar::-webkit-scrollbar-thumb { background:var(--border); border-radius:999px; }
+  .tag-bar::-webkit-scrollbar { display:none; height:0; }
   .search-row { margin-top:12px; }
   .feed-search-row { display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
   .feed-search-row .search-input { flex:1 1 auto; min-width:0; width:0; }
@@ -450,6 +448,38 @@
     width:100%; min-height:140px; padding:16px; border-radius:var(--r);
     border:1px solid var(--border); background:var(--bg); color:var(--text);
     font-size:15px; line-height:1.7; resize:vertical; font-family:var(--font); transition:all .2s;
+  }
+  #custom-tag, #new-content {
+    background:#fff;
+    border:1px solid #d9d2cb;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+  }
+  #new-content {
+    min-height:180px;
+    line-height:1.8;
+  }
+  #new-content::placeholder, #custom-tag::placeholder {
+    color:#9a948d;
+  }
+  .block-actions {
+    display:flex;
+    gap:10px;
+    margin-top:18px;
+    align-items:stretch;
+  }
+  .block-actions .btn-outline {
+    width:auto;
+    min-width:112px;
+    padding:0 14px;
+    border-radius:10px;
+    white-space:nowrap;
+    background:#fff;
+  }
+  .block-actions .btn-primary {
+    flex:1;
+    width:auto;
+    margin-top:0;
+    border-radius:12px;
   }
   .char-counter { text-align:right; font-size:12px; color:var(--text3); margin-top:4px; }
   .modal-note { text-align:center; font-size:12px; color:var(--text3); margin-top:14px; }
@@ -2983,8 +3013,8 @@ function showBlockSettings() {
           <label class="form-label">屏蔽匿名昵称（逗号分隔）</label>
           <input class="form-input" id="block-names" value="${escapeAttr((rules.names || []).join(","))}" placeholder="例如：孤独的狼">
         </div>
-        <div style="display:flex;gap:8px;margin-top:16px">
-          <button class="btn-outline" id="block-clear">清空规则</button>
+        <div class="block-actions">
+          <button class="btn-outline" id="block-reset">恢复默认</button>
           <button class="btn-primary" id="block-save">保存设置</button>
         </div>
       </div>
@@ -2993,12 +3023,12 @@ function showBlockSettings() {
   document.getElementById("block-close").addEventListener("click", close);
   document.getElementById("block-overlay").addEventListener("click", (e) => { if (e.target.id === "block-overlay") close(); });
   document.getElementById("block-body").addEventListener("click", (e) => e.stopPropagation());
-  document.getElementById("block-clear").addEventListener("click", () => {
+  document.getElementById("block-reset").addEventListener("click", () => {
     state.blockRules = { tags: [], keywords: [], names: [] };
     saveJSON("sdu_block_rules", state.blockRules);
     close();
     renderPostList();
-    showToast("已清空屏蔽规则");
+    showToast("已恢复默认屏蔽设置");
   });
   document.getElementById("block-save").addEventListener("click", () => {
     const split = (v) => String(v || "").split(",").map(x => x.trim()).filter(Boolean);
