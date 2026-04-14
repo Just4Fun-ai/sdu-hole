@@ -2487,18 +2487,26 @@ function bindFeed() {
       showToast("公告详情加载失败");
     }
   });
-  document.querySelectorAll(".tab-btn").forEach(el => {
+  document.querySelectorAll(".feed-header .tab-btn[data-order]").forEach(el => {
     el.addEventListener("click", () => {
-      if (el.dataset.order) state.order = el.dataset.order;
-      state.feedDirty = true;
-      render();
+      const nextOrder = el.dataset.order || "new";
+      if (state.order === nextOrder || state.loadingPosts) return;
+      state.order = nextOrder;
+      document.querySelectorAll(".feed-header .tab-btn[data-order]").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.order === state.order);
+      });
+      resetAndLoadPosts({ preserveList: true });
     });
   });
   document.querySelectorAll(".tag-pill").forEach(el => {
     el.addEventListener("click", () => {
-      state.activeTag = el.dataset.tag;
-      state.feedDirty = true;
-      render();
+      const nextTag = el.dataset.tag || "全部";
+      if (state.activeTag === nextTag) return;
+      state.activeTag = nextTag;
+      document.querySelectorAll(".tag-pill").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.tag === state.activeTag);
+      });
+      resetAndLoadPosts({ preserveList: true });
     });
   });
   bindTagBarWheelScroll();
@@ -3602,7 +3610,11 @@ let replyTargetCommentId = null;
 let replyTargetPreview = null;
 
 function makeReplyExcerpt(content) {
-  const plain = extractCommentPlainBody(String(content || ""));
+  let plain = extractCommentPlainBody(String(content || ""));
+  if (!plain) {
+    const q = parseQuotedComment(String(content || ""));
+    plain = stripLeadingQuotePrefix(String(q?.excerpt || ""));
+  }
   return plain
     .replace(/[【】\[\]\|]/g, " ")
     .replace(/\s+/g, " ")
@@ -3653,10 +3665,11 @@ function renderCommentBodyHTML(content) {
     const clean = extractCommentPlainBody(content);
     return `<div style="font-size:14px;line-height:1.7;padding-left:32px">${escapeHTML(clean)}</div>`;
   }
+  const cleanExcerpt = makeReplyExcerpt(q.excerpt || "");
   const cleanBody = extractCommentPlainBody(q.body || "");
   return `
     <div style="padding-left:32px">
-      <div class="comment-quote">回复 ${escapeHTML(q.name)}：${escapeHTML(q.excerpt)}</div>
+      <div class="comment-quote">${escapeHTML(cleanExcerpt || "（已引用）")}</div>
       <div style="font-size:14px;line-height:1.7">${escapeHTML(cleanBody)}</div>
     </div>
   `;
@@ -3776,7 +3789,7 @@ function bindDetail() {
     state.commentThreadPage = 1;
     state.commentThreadHasMore = false;
     state.commentThreadExpanded = {};
-    loadComments();
+    loadComments({ preserveViewport: true });
     document.getElementById("btn-only-author").textContent = state.detailOnlyAuthor ? "查看全部回复" : "只看楼主";
   });
   document.getElementById("btn-load-more-comments")?.addEventListener("click", () => {
@@ -3938,9 +3951,16 @@ function bindDetail() {
   bindMobileNav();
 }
 
-async function loadComments() {
+async function loadComments(opts = { preserveViewport: false }) {
   const list = document.getElementById("comments-list");
   const countEl = document.getElementById("comment-count");
+  const preserveViewport = !!opts?.preserveViewport;
+  let beforeTop = null;
+  let beforeScrollY = null;
+  if (preserveViewport && list) {
+    beforeTop = list.getBoundingClientRect().top;
+    beforeScrollY = window.scrollY || window.pageYOffset || 0;
+  }
   try {
     const data = await apiFetch(
       `/api/posts/${state.selectedPost.id}/comment-threads?page=1&size=20&only_author=${state.detailOnlyAuthor ? "true" : "false"}`
@@ -3955,6 +3975,15 @@ async function loadComments() {
       ? `${Number(data.total_visible_comments || 0)}/${Number(data.total_all_comments || 0)}`
       : String(Number(data.total_all_comments || 0));
     renderCommentThreads();
+    if (preserveViewport && list && beforeTop !== null && beforeScrollY !== null) {
+      requestAnimationFrame(() => {
+        const afterTop = list.getBoundingClientRect().top;
+        const delta = afterTop - beforeTop;
+        if (Math.abs(delta) > 1) {
+          window.scrollTo({ top: Math.max(0, beforeScrollY + delta), behavior: "auto" });
+        }
+      });
+    }
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--danger)">${e.message}</div>`;
   }
