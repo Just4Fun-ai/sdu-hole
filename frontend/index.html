@@ -132,6 +132,17 @@
   .login-footer { text-align:center; font-size:11px; color:var(--text3); margin-top:24px; line-height:1.8; }
   .login-footer a { color:var(--text2); text-decoration:none; border-bottom:1px dashed rgba(0,0,0,.2); }
   .login-footer a:hover { color:var(--accent); border-bottom-color:var(--accent); }
+  .trust-note {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.7;
+  }
+  .trust-note b { color: var(--text); }
 
   .code-input { text-align:center; letter-spacing:12px; font-size:22px; font-weight:700; }
   .resend-btn { background:none; border:none; font-size:13px; cursor:pointer; margin-top:14px; }
@@ -232,6 +243,23 @@
   }
   .tag-pill.active { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
   .tag-pill:hover { border-color:var(--accent-border); background:#fff; color:var(--accent); }
+  .tag-filter-meta {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text3);
+    overflow-x: auto;
+  }
+  .tag-filter-meta .chip {
+    border: 1px solid #fecdd3;
+    color: var(--accent);
+    background: #fff1f2;
+    border-radius: 999px;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
 
   .post-list { display:flex; flex-direction:column; gap:10px; min-height:240px; }
   .load-more-wrap { text-align:center; padding:10px 0 0; }
@@ -286,6 +314,11 @@
     width:30px; height:30px; border-radius:8px; display:flex; align-items:center;
     justify-content:center; font-size:13px; font-weight:700;
   }
+  .anon-avatar.equal {
+    background: #f3f4f6 !important;
+    color: #6b7280 !important;
+    border: 1px solid #e5e7eb;
+  }
   .anon-name { font-size:13px; font-weight:600; }
   .anon-time { font-size:12px; color:var(--text3); }
   .tag-chip {
@@ -294,6 +327,17 @@
   }
   .post-content { font-size:15px; line-height:1.8; margin-bottom:14px; word-break:break-word; }
   .post-image-strip { display:flex; gap:8px; margin-bottom:10px; overflow:hidden; }
+  .inline-media-toggle {
+    margin: 8px 0 12px;
+    border: 1px dashed var(--border);
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--text2);
+    cursor: pointer;
+  }
+  .inline-media-toggle:hover { border-color: var(--accent-border); color: var(--accent); }
   .post-image-thumb { width:92px; height:92px; border-radius:8px; object-fit:cover; border:1px solid var(--border); background:#fff; }
   .detail-images { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:10px 0 6px; }
   .detail-images img { width:100%; height:130px; object-fit:cover; border-radius:8px; border:1px solid var(--border); cursor:pointer; background:#fff; }
@@ -885,6 +929,7 @@ let state = {
   selectedPost: null,
   comments: [],
   activeTag: "全部",
+  selectedTags: loadJSON("sdu_selected_tags", []),
   order: "new",
   feedMode: "all", // all | mine | favorites
   keyword: "",
@@ -896,6 +941,9 @@ let state = {
   loadingPosts: false,
   feedDirty: true,
   expandedPostIds: loadJSON("sdu_expanded_posts", []),
+  expandedMediaPostIds: loadJSON("sdu_expanded_media_posts", []),
+  equalAnonMode: loadJSON("sdu_equal_anon_mode", true),
+  textFirstMode: loadJSON("sdu_text_first_mode", true),
   announcements: [],
   unreadNoticeCount: 0,
   notifications: [],
@@ -1149,6 +1197,30 @@ function setPostExpanded(postId, expanded) {
   saveJSON("sdu_expanded_posts", state.expandedPostIds);
 }
 
+function isPostMediaExpanded(postId) {
+  return Array.isArray(state.expandedMediaPostIds) && state.expandedMediaPostIds.includes(postId);
+}
+
+function setPostMediaExpanded(postId, expanded) {
+  const set = new Set(state.expandedMediaPostIds || []);
+  if (expanded) set.add(postId);
+  else set.delete(postId);
+  state.expandedMediaPostIds = Array.from(set).slice(0, 400);
+  saveJSON("sdu_expanded_media_posts", state.expandedMediaPostIds);
+}
+
+function pseudoAnonId(seed) {
+  const raw = String(seed || "");
+  let h = 0;
+  for (let i = 0; i < raw.length; i += 1) h = ((h << 5) - h + raw.charCodeAt(i)) | 0;
+  return String(Math.abs(h % 10000)).padStart(4, "0");
+}
+
+function displayAnonName(rawName, seed) {
+  if (!state.equalAnonMode) return String(rawName || "匿名同学");
+  return `洞友#${pseudoAnonId(seed)}`;
+}
+
 function postContentHTML(post) {
   const full = postContentPreview(post);
   const text = String(postContentPreview(post).replace(/<[^>]*>/g, ""));
@@ -1345,8 +1417,11 @@ function renderPostImagesPreview(post, inDetail = false) {
   const urls = Array.isArray(post.image_urls) ? post.image_urls : [];
   if (!urls.length) return "";
   if (!inDetail) {
+    if (state.textFirstMode && !isPostMediaExpanded(post.id)) {
+      return `<button class="inline-media-toggle" data-toggle-media="${post.id}">查看图片（${urls.length} 张）</button>`;
+    }
     const show = urls.slice(0, 3);
-    return `<div class="post-image-strip">${show.map((u, idx) => `<img class="post-image-thumb lazy-post-img" data-src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy" alt="post-image">`).join("")}</div>`;
+    return `<div class="post-image-strip">${show.map((u, idx) => `<img class="post-image-thumb lazy-post-img" data-src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy" alt="post-image">`).join("")}</div>${state.textFirstMode ? `<button class="inline-media-toggle" data-toggle-media="${post.id}">收起图片</button>` : ""}`;
   }
   return `<div class="detail-images">${urls.map((u, idx) => `<img src="${escapeAttr(u)}" data-open-img="${escapeAttr(u)}" data-img-index="${idx}" loading="lazy">`).join("")}</div>`;
 }
@@ -1642,6 +1717,7 @@ function renderLogin() {
             ? `<button class="btn-primary" id="btn-password-login" ${(!!validateStudentIdClient(loginStudentId) || !!validatePasswordPolicyClient(loginPassword) || !loginAgreementAccepted) ? "disabled" : ""}>账号密码登录</button>`
             : `<button class="btn-primary" id="btn-send" ${(!!validateStudentIdClient(loginStudentId) || !loginAgreementAccepted) ? "disabled" : ""}>发送验证码</button>`
           }
+          <div class="trust-note"><b>仅限校内</b>：仅支持山大学号+邮箱登录；洞外账号无法进入。<br><b>仅后台可追溯</b>：前台完全匿名，违规内容会按规则治理。</div>
           <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
       </div>`;
@@ -1675,6 +1751,7 @@ function renderLogin() {
               ${loginCountdown > 0 ? loginCountdown + "s 后重新发送" : "重新发送验证码"}
             </button>
           </div>
+          <div class="trust-note"><b>仅限校内</b>：验证码只发送到山大邮箱，确保社区身份可信。</div>
           <div class="login-footer">学号仅用于验证在校生身份，发言完全匿名</div>
         </div>
       </div>`;
@@ -2090,8 +2167,9 @@ function renderMobileNav(active = "feed") {
 }
 
 function renderFeed() {
+  const selectedTags = Array.isArray(state.selectedTags) ? state.selectedTags : [];
   const tagPills = ["全部", ...getDisplayTags()].map(t =>
-    `<span class="tag-pill ${state.activeTag===t?"active":""}" data-tag="${t}">${t}</span>`
+    `<span class="tag-pill ${(t === "全部" ? selectedTags.length === 0 : selectedTags.includes(t))?"active":""}" data-tag="${t}">${t}</span>`
   ).join("");
   const topNotice = state.announcements[0];
 
@@ -2114,7 +2192,7 @@ function renderFeed() {
           <button class="tab-btn ${state.order==="hot"?"active":""}" data-order="hot">最热</button>
         </div>
         <div class="search-row feed-search-row">
-          <input id="search-input" class="search-input" placeholder="搜索洞号或关键字" value="${escapeAttr(state.keyword)}">
+          <input id="search-input" class="search-input" placeholder="搜索洞号/关键词（支持 tag:课程评价）" value="${escapeAttr(state.keyword)}">
           <button class="btn-outline" id="btn-refresh" title="搜索/刷新">🔍</button>
           ${state.isAdmin ? `<button class="btn-outline" id="btn-announce">发布公告</button>` : ""}
         </div>
@@ -2125,6 +2203,7 @@ function renderFeed() {
           <button class="search-history-clear" id="btn-clear-search-history">清空</button>
         </div>` : ""}
       </div>
+      ${selectedTags.length ? `<div class="tag-filter-meta"><span>组合筛选</span>${selectedTags.map(t => `<span class="chip">${escapeHTML(t)}</span>`).join("")}<button class="resend-btn" id="btn-clear-tag-filters">清空</button></div>` : ""}
       ${topNotice ? `
       <div class="feed-announcement" id="feed-announcement" data-id="${topNotice.id}">
         <div class="title">📌 公告置顶</div>
@@ -2495,6 +2574,10 @@ function bindTagBarWheelScroll() {
 }
 
 function bindFeed() {
+  if (!Array.isArray(state.selectedTags)) state.selectedTags = [];
+  if (state.activeTag && state.activeTag !== "全部" && !state.selectedTags.length) {
+    state.selectedTags = [state.activeTag];
+  }
   state.feedMode = "all";
   document.getElementById("btn-logout").addEventListener("click", () => {
     state.token = "";
@@ -2543,13 +2626,30 @@ function bindFeed() {
   document.querySelectorAll(".tag-pill").forEach(el => {
     el.addEventListener("click", () => {
       const nextTag = el.dataset.tag || "全部";
-      if (state.activeTag === nextTag) return;
-      state.activeTag = nextTag;
+      if (nextTag === "全部") {
+        state.activeTag = "全部";
+        state.selectedTags = [];
+      } else {
+        const next = new Set(state.selectedTags || []);
+        if (next.has(nextTag)) next.delete(nextTag);
+        else next.add(nextTag);
+        state.selectedTags = Array.from(next).slice(0, 6);
+        state.activeTag = state.selectedTags[0] || "全部";
+      }
+      saveJSON("sdu_selected_tags", state.selectedTags);
       document.querySelectorAll(".tag-pill").forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.tag === state.activeTag);
+        const t = btn.dataset.tag || "全部";
+        const isActive = t === "全部" ? state.selectedTags.length === 0 : state.selectedTags.includes(t);
+        btn.classList.toggle("active", isActive);
       });
       resetAndLoadPosts({ preserveList: true });
     });
+  });
+  document.getElementById("btn-clear-tag-filters")?.addEventListener("click", () => {
+    state.selectedTags = [];
+    state.activeTag = "全部";
+    saveJSON("sdu_selected_tags", []);
+    resetAndLoadPosts({ preserveList: true });
   });
   bindTagBarWheelScroll();
   const searchInput = document.getElementById("search-input");
@@ -2654,7 +2754,8 @@ async function loadPosts(opts = { append: false, preserveList: false }) {
       page: String(state.postsPage),
       size: String(state.pageSize),
     });
-    if (state.activeTag !== "全部") params.set("tag", state.activeTag);
+    if (Array.isArray(state.selectedTags) && state.selectedTags.length === 1) params.set("tag", state.selectedTags[0]);
+    else if ((!state.selectedTags || !state.selectedTags.length) && state.activeTag !== "全部") params.set("tag", state.activeTag);
     if (state.feedMode === "mine") params.set("mine", "true");
     if (state.feedMode === "favorites") params.set("favorited", "true");
     const rows = await apiFetch("/api/posts/?" + params);
@@ -2716,6 +2817,10 @@ function appendEmojiToInput(inputEl, emoji) {
 function filteredPosts() {
   const { tag, keyword } = parseSearchQuery(state.keyword);
   let rows = state.posts.filter(p => !isBlockedPost(p));
+  if (Array.isArray(state.selectedTags) && state.selectedTags.length) {
+    const set = new Set(state.selectedTags);
+    rows = rows.filter(p => set.has(p.tag));
+  }
   if (tag && tag !== "全部") rows = rows.filter(p => p.tag === tag);
   if (!keyword) return rows;
   return rows.filter(p => {
@@ -2729,6 +2834,7 @@ function filteredPosts() {
 function postMatchesCurrentFilter(post) {
   if (!post || isBlockedPost(post)) return false;
   const { tag, keyword } = parseSearchQuery(state.keyword);
+  if (Array.isArray(state.selectedTags) && state.selectedTags.length && !state.selectedTags.includes(post.tag)) return false;
   if (tag && tag !== "全部" && post.tag !== tag) return false;
   if (!keyword) return true;
   const holeNo = formatHoleNo(post.id, post.created_at).toLowerCase();
@@ -2949,6 +3055,18 @@ function bindPostListInteractions(list) {
     });
   });
 
+  list.querySelectorAll("[data-toggle-media]").forEach(btn => {
+    if (btn.dataset.boundToggleMedia === "1") return;
+    btn.dataset.boundToggleMedia = "1";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const postId = parseInt(btn.dataset.toggleMedia || "", 10);
+      if (!Number.isFinite(postId)) return;
+      setPostMediaExpanded(postId, !isPostMediaExpanded(postId));
+      renderPostList();
+    });
+  });
+
   list.querySelectorAll("[data-open-img]").forEach(img => {
     if (img.dataset.boundOpenImg === "1") return;
     img.dataset.boundOpenImg = "1";
@@ -3025,6 +3143,16 @@ function showBlockSettings() {
           <label class="form-label">屏蔽匿名昵称（逗号分隔）</label>
           <input class="form-input" id="block-names" value="${escapeAttr((rules.names || []).join(","))}" placeholder="例如：孤独的狼">
         </div>
+        <div style="margin-top:14px;padding:10px;border:1px dashed var(--border);border-radius:10px;background:#fff">
+          <label class="form-hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+            <input type="checkbox" id="pref-equal-anon" ${state.equalAnonMode ? "checked" : ""}>
+            <span>平权匿名模式（统一显示为“洞友#编号”）</span>
+          </label>
+          <label class="form-hint" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:8px">
+            <input type="checkbox" id="pref-text-first" ${state.textFirstMode ? "checked" : ""}>
+            <span>文本优先模式（时间流默认折叠图片）</span>
+          </label>
+        </div>
         <div class="block-actions">
           <button class="btn-outline" id="block-reset">恢复默认</button>
           <button class="btn-primary" id="block-save">保存设置</button>
@@ -3037,9 +3165,13 @@ function showBlockSettings() {
   document.getElementById("block-body").addEventListener("click", (e) => e.stopPropagation());
   document.getElementById("block-reset").addEventListener("click", () => {
     state.blockRules = { tags: [], keywords: [], names: [] };
+    state.equalAnonMode = true;
+    state.textFirstMode = true;
     saveJSON("sdu_block_rules", state.blockRules);
+    saveJSON("sdu_equal_anon_mode", state.equalAnonMode);
+    saveJSON("sdu_text_first_mode", state.textFirstMode);
     close();
-    renderPostList();
+    render();
     showToast("已恢复默认屏蔽设置");
   });
   document.getElementById("block-save").addEventListener("click", () => {
@@ -3049,9 +3181,13 @@ function showBlockSettings() {
       keywords: split(document.getElementById("block-keys").value),
       names: split(document.getElementById("block-names").value),
     };
+    state.equalAnonMode = !!document.getElementById("pref-equal-anon")?.checked;
+    state.textFirstMode = !!document.getElementById("pref-text-first")?.checked;
     saveJSON("sdu_block_rules", state.blockRules);
+    saveJSON("sdu_equal_anon_mode", state.equalAnonMode);
+    saveJSON("sdu_text_first_mode", state.textFirstMode);
     close();
-    renderPostList();
+    render();
     showToast("屏蔽设置已保存");
   });
 }
@@ -3456,6 +3592,8 @@ async function submitNewPost() {
     newPostImages.forEach(it => { if (it.preview?.startsWith("blob:")) URL.revokeObjectURL(it.preview); });
     newPostImages = [];
     state.activeTag = "全部";
+    state.selectedTags = [];
+    saveJSON("sdu_selected_tags", []);
     state.feedDirty = false;
     state.posts = [post, ...state.posts.filter(p => p.id !== post.id)];
     document.getElementById("modal-root").innerHTML = "";
@@ -3562,8 +3700,8 @@ function renderPostList() {
     <div class="post-card" data-id="${p.id}" style="animation-delay:${i*60}ms">
       <div class="post-header">
         <div class="anon-info">
-          ${avatarHTML(p.id, p.anon_name)}
-          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(compactAnonName(p.anon_name))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
+          ${state.equalAnonMode ? `<div class="anon-avatar equal">匿</div>` : avatarHTML(p.id, p.anon_name)}
+          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(displayAnonName(compactAnonName(p.anon_name), `post-${p.id}-${p.anon_name}`))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
         </div>
         ${tagChipHTML(p.tag)}
       </div>
@@ -3608,8 +3746,8 @@ function appendPostsToList(rows) {
     <div class="post-card" data-id="${p.id}" style="animation-delay:${(startIdx + i)*60}ms">
       <div class="post-header">
         <div class="anon-info">
-          ${avatarHTML(p.id, p.anon_name)}
-          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(compactAnonName(p.anon_name))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
+          ${state.equalAnonMode ? `<div class="anon-avatar equal">匿</div>` : avatarHTML(p.id, p.anon_name)}
+          <div><div class="anon-name" title="${escapeAttr(p.anon_name)}">${escapeHTML(displayAnonName(compactAnonName(p.anon_name), `post-${p.id}-${p.anon_name}`))}</div><div class="anon-time">${formatHoleNo(p.id, p.created_at)} · ${timeAgo(p.created_at)}</div></div>
         </div>
         ${tagChipHTML(p.tag)}
       </div>
@@ -4052,8 +4190,8 @@ function renderCommentThreads() {
   const renderCommentRow = (c, floor, isChild = false) => `
     <div class="${isChild ? "comment-child-item" : "comment-item"}" data-comment-id="${c.id}" style="animation-delay:${floor*40}ms">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        ${avatarHTML(c.id * 3, c.anon_name, 24)}
-        <span style="font-size:13px;font-weight:600">${c.anon_name}</span>
+        ${state.equalAnonMode ? `<div class="anon-avatar equal" style="width:24px;height:24px;font-size:12px">匿</div>` : avatarHTML(c.id * 3, c.anon_name, 24)}
+        <span style="font-size:13px;font-weight:600">${escapeHTML(displayAnonName(c.anon_name, `comment-${c.id}-${c.anon_name}`))}</span>
         <span style="font-size:12px;color:var(--text3)">#${floor}</span>
         ${c.is_author ? `<span style="font-size:12px;color:var(--accent)">楼主</span>` : ""}
         <span style="font-size:12px;color:var(--text3);margin-left:auto">${timeAgo(c.created_at)}</span>
