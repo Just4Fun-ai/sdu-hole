@@ -633,18 +633,22 @@
     cursor:pointer;
   }
   .notice-delete-btn:active { background:#b52f2f; }
-  .comment-children { margin-left:32px; margin-top:8px; border-left:2px solid var(--border-light); padding-left:12px; }
+  /* 扁平化子回复：不再视觉层级缩进，只靠引用块体现"回复谁" */
+  .comment-children { margin-top:4px; padding-top:4px; border-top:1px dashed var(--border-light); }
   .comment-child-item { padding:10px 0; border-bottom:1px dashed var(--border-light); }
   .comment-child-item:last-child { border-bottom:none; }
   .comment-thread-toggle {
-    margin:6px 0 4px 32px;
+    margin:8px 0 2px 0;
     border:none;
     background:transparent;
     color:var(--accent);
     font-size:12px;
     cursor:pointer;
+    padding:4px 0;
   }
   .comment-thread-toggle:hover { text-decoration:underline; }
+  .comment-thread-toggle::before { content:"—— "; color:var(--text3); }
+  .comment-newly-added { animation: fadeUp .45s ease-out; background: rgba(166,27,41,0.06); border-radius:8px; }
   .comment-quote {
     margin:0 0 6px;
     padding:6px 8px;
@@ -739,10 +743,12 @@
   }
   .comment-bar {
     position:fixed; bottom:0; left:0; right:0; background:var(--surface);
-    border-top:1px solid var(--border); padding:10px 16px 8px; z-index:50;
+    border-top:1px solid var(--border);
+    padding:8px 14px calc(6px + env(safe-area-inset-bottom));
+    z-index:50;
     transition:transform .22s ease, opacity .22s ease;
   }
-  body.detail-composer-open .container { padding-bottom: 12px !important; }
+  body.detail-composer-open .container { padding-bottom: 8px !important; }
   body.detail-composer-open .comment-bar { bottom: 0 !important; }
   .comment-bar.auto-hidden {
     transform:translateY(calc(100% + 10px));
@@ -750,10 +756,10 @@
     pointer-events:none;
   }
   .comment-input-row { display:flex; gap:10px; align-items:center; }
-  .emoji-bar { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
+  .emoji-bar { display:flex; gap:6px; margin-top:6px; overflow-x:auto; padding-bottom:2px; }
   .emoji-btn {
     border:1px solid var(--border); background:var(--surface); border-radius:999px;
-    padding:4px 8px; font-size:14px; cursor:pointer;
+    padding:3px 7px; font-size:14px; cursor:pointer; flex-shrink:0;
   }
   .action-btn.warn { color:#b45309; }
   .comment-input { flex:1; padding:10px 14px; border-radius:var(--r); border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; font-family:var(--font-sans); transition:all .2s; }
@@ -4299,6 +4305,60 @@ function bindCommentActions() {
   });
 }
 
+// 乐观更新：把后端刚创建的评论直接插入到当前线程结构里
+// 成功返回 true；如果状态太乱（没有当前帖子、线程结构异常）返回 false 由调用方回退到全量刷新
+function insertCommentOptimistically(created) {
+  if (!created || !created.id || !state.selectedPost) return false;
+  if (!Array.isArray(state.commentThreads)) state.commentThreads = [];
+  const newItem = {
+    id: Number(created.id),
+    post_id: Number(created.post_id),
+    parent_id: created.parent_id == null ? null : Number(created.parent_id),
+    anon_name: String(created.anon_name || "我"),
+    content: String(created.content || ""),
+    like_count: Number(created.like_count || 0),
+    created_at: created.created_at,
+    is_liked: !!created.is_liked,
+    is_author: !!created.is_author,
+    is_mine: created.is_mine !== false, // 自己刚发的
+  };
+  if (newItem.parent_id == null) {
+    // 新主楼评论：追加为新的 thread
+    state.commentThreads.push({
+      root: newItem,
+      replies: [],
+      total_replies: 0,
+      loaded_replies: 0,
+      has_more_replies: false,
+      replies_page: 1,
+    });
+  } else {
+    // 回复（后端已经把 parent_id 规整到主楼 id）
+    const thread = state.commentThreads.find(t => Number(t.root?.id) === newItem.parent_id);
+    if (!thread) {
+      // 主楼不在当前已加载的分页里，只能回退到全量刷新
+      return false;
+    }
+    thread.replies = Array.isArray(thread.replies) ? thread.replies.concat(newItem) : [newItem];
+    thread.total_replies = Number(thread.total_replies || 0) + 1;
+    thread.loaded_replies = Number(thread.loaded_replies || thread.replies.length);
+    // 默认展开该线程，保证新回复立刻可见
+    state.commentThreadExpanded[newItem.parent_id] = true;
+  }
+  state.pendingCommentId = newItem.id;
+  renderCommentThreads();
+  // 滚动到新评论并高亮
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-comment-id="${newItem.id}"]`);
+    if (el) {
+      el.classList.add("comment-newly-added");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => el.classList.remove("comment-newly-added"), 1800);
+    }
+  });
+  return true;
+}
+
 async function submitComment() {
   const input = document.getElementById("comment-input");
   const raw = (input.value || "").trim();
@@ -4340,12 +4400,29 @@ async function submitComment() {
     replyTargetPreview = null;
     const hint = document.getElementById("reply-hint");
     if (hint) hint.style.display = "none";
-    await loadComments();
+    // 乐观更新：直接把后端返回的评论插入 UI，不再全量刷新
+    const optimisticOk = insertCommentOptimistically(created);
+    if (!optimisticOk) {
+      // 极端情况（比如刚好在分页边界）才回退到全量刷新
+      await loadComments();
+    }
     state.selectedPost.comment_count = Number(state.selectedPost.comment_count || 0) + 1;
     const inList = state.posts.find(x => x.id === state.selectedPost.id);
     if (inList) inList.comment_count = state.selectedPost.comment_count;
     const detailCommentCount = document.getElementById("detail-comment-count");
     if (detailCommentCount) detailCommentCount.textContent = String(state.selectedPost.comment_count);
+    const countEl = document.getElementById("comment-count");
+    if (countEl) {
+      if (state.detailOnlyAuthor) {
+        // 简单加一（楼主自己发的时候才计可见数）
+        const parts = String(countEl.textContent || "0/0").split("/");
+        const vis = Number(parts[0] || 0) + (created?.is_author ? 1 : 0);
+        const all = Number(parts[1] || 0) + 1;
+        countEl.textContent = `${vis}/${all}`;
+      } else {
+        countEl.textContent = String(Number(countEl.textContent || 0) + 1);
+      }
+    }
     hideDetailComposer(true);
     showToast("评论已发布");
   } catch(e) {
