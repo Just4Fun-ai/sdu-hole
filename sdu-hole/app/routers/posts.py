@@ -22,6 +22,7 @@ from app.models.report import Report
 from app.models.uploaded_image import UploadedImage
 from app.schemas.post import PostCreate, PostResponse, CommentCreate, CommentResponse, ReportCreate
 from app.utils.security import get_current_user
+from app.utils.anonymous import generate_anon_name
 from app.services.filter import check_content
 from app.services.moderation import log_moderation_hit
 
@@ -133,10 +134,23 @@ async def _count_post_favorites(db: AsyncSession, post_id: int) -> int:
 
 
 def normalize_display_name(name: str | None, fallback: str) -> str:
+    """历史函数：保留做兜底。新代码一律用 anon_display_name() 动态生成。"""
     display = (name or "").strip() or fallback
     if display.startswith("匿名") and len(display) > 2:
         display = display[2:]
     return display
+
+
+def anon_display_name(user_id: int | None, post_id: int | None) -> str:
+    """
+    对外展示的匿名昵称 —— 任何帖子/评论返回给前端前都走这里。
+    - 同一 (user_id, post_id) 稳定：楼内可追踪讨论脉络
+    - 跨帖不同：防止跨帖追踪同一用户
+    - 不依赖数据库里存的 anon_name 字段，保证历史老数据也立即受保护
+    """
+    if not user_id or not post_id:
+        return "匿名同学"
+    return generate_anon_name(int(user_id), int(post_id))
 
 
 def ensure_nickname_bound(user: User):
@@ -245,7 +259,7 @@ async def list_posts(
     return [
         PostResponse(
             id=p.id,
-            anon_name=normalize_display_name(p.anon_name, f"同学{p.user_id}"),
+            anon_name=anon_display_name(p.user_id, p.id),
             content=p.content,
             tag=p.tag,
             like_count=p.like_count,
@@ -313,7 +327,7 @@ async def list_announcements(
     return [
         PostResponse(
             id=p.id,
-            anon_name=normalize_display_name(p.anon_name, f"同学{p.user_id}"),
+            anon_name=anon_display_name(p.user_id, p.id),
             content=p.content,
             tag=p.tag,
             like_count=p.like_count,
@@ -450,7 +464,8 @@ async def create_post(
 
     post = Post(
         user_id=user.id,
-        anon_name=user.nickname or f"同学{user.id}",
+        # 数据库仅存占位：对外一律通过 anon_display_name() 动态生成，避免跨帖追踪
+        anon_name="",
         content=content,
         tag=tag,
     )
@@ -464,7 +479,7 @@ async def create_post(
 
     return PostResponse(
         id=post.id,
-        anon_name=normalize_display_name(post.anon_name, f"同学{post.user_id}"),
+        anon_name=anon_display_name(post.user_id, post.id),
         content=post.content,
         tag=post.tag,
         like_count=0,
@@ -508,7 +523,7 @@ async def get_post(
     image_urls = [image_url_from_token(r.token) for r in img_result.scalars().all()]
 
     return PostResponse(
-        id=post.id, anon_name=normalize_display_name(post.anon_name, f"同学{post.user_id}"), content=post.content,
+        id=post.id, anon_name=anon_display_name(post.user_id, post.id), content=post.content,
         tag=post.tag, like_count=post.like_count, comment_count=post.comment_count, favorite_count=fav_count,
         created_at=post.created_at, is_liked=is_liked, is_mine=post.user_id == user.id,
         is_favorited=favored.scalar_one_or_none() is not None,
@@ -656,7 +671,7 @@ async def list_comments(
     return [
         CommentResponse(
             id=c.id, post_id=c.post_id, parent_id=c.parent_id,
-            anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
+            anon_name=anon_display_name(c.user_id, c.post_id),
             content=c.content, like_count=c.like_count,
             created_at=c.created_at, is_liked=c.id in liked_ids,
             is_author=(c.user_id == post.user_id),
@@ -671,7 +686,7 @@ def _to_comment_response(c: Comment, liked_ids: set[int], post_owner_id: int, cu
         id=c.id,
         post_id=c.post_id,
         parent_id=c.parent_id,
-        anon_name=normalize_display_name(c.anon_name, f"同学{c.user_id}"),
+        anon_name=anon_display_name(c.user_id, c.post_id),
         content=c.content,
         like_count=c.like_count,
         created_at=c.created_at,
@@ -941,7 +956,8 @@ async def create_comment(
         user_id=user.id,
         reply_to_user_id=reply_to_user_id,
         parent_id=parent_id,
-        anon_name=user.nickname or f"同学{user.id}",
+        # 数据库仅存占位：对外一律通过 anon_display_name() 动态生成，避免跨帖追踪
+        anon_name="",
         content=content,
     )
     db.add(comment)
@@ -951,7 +967,7 @@ async def create_comment(
 
     return CommentResponse(
         id=comment.id, post_id=comment.post_id, parent_id=comment.parent_id,
-        anon_name=normalize_display_name(comment.anon_name, f"同学{comment.user_id}"),
+        anon_name=anon_display_name(comment.user_id, comment.post_id),
         content=comment.content, like_count=0, created_at=comment.created_at,
         is_liked=False, is_author=(comment.user_id == post.user_id), is_mine=True,
     )

@@ -439,6 +439,14 @@ async def my_notifications(
     items: list[dict] = []
     by_comment_notice_id: dict[str, dict] = {}
 
+    # 通知里的名字也走帖内匿名代号，跨帖不可追踪
+    from app.utils.anonymous import generate_anon_name as _gen_anon
+
+    def _notify_name(user_id: int | None, post_id: int | None) -> str:
+        if not user_id or not post_id:
+            return "同学"
+        return _gen_anon(int(user_id), int(post_id))
+
     for c, p in post_comment_rows.all():
         nid = f"c-{c.id}"
         by_comment_notice_id[nid] = {
@@ -447,7 +455,7 @@ async def my_notifications(
             "created_at": c.created_at,
             "post_id": c.post_id,
             "comment_id": c.id,
-            "text": f"{(c.anon_name or '同学')} 评论了你的帖子",
+            "text": f"{_notify_name(c.user_id, c.post_id)} 评论了你的帖子",
         }
 
     for child, p in reply_rows.all():
@@ -459,7 +467,7 @@ async def my_notifications(
             "created_at": child.created_at,
             "post_id": child.post_id,
             "comment_id": child.id,
-            "text": f"{(child.anon_name or '同学')} 回复了你的评论",
+            "text": f"{_notify_name(child.user_id, child.post_id)} 回复了你的评论",
         }
 
     for child, p in reply_rows_legacy.all():
@@ -470,7 +478,7 @@ async def my_notifications(
             "created_at": child.created_at,
             "post_id": child.post_id,
             "comment_id": child.id,
-            "text": f"{(child.anon_name or '同学')} 回复了你的评论",
+            "text": f"{_notify_name(child.user_id, child.post_id)} 回复了你的评论",
         }
 
     items.extend(by_comment_notice_id.values())

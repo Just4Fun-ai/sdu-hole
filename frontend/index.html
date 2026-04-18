@@ -942,7 +942,8 @@ let state = {
   feedDirty: true,
   expandedPostIds: loadJSON("sdu_expanded_posts", []),
   expandedMediaPostIds: loadJSON("sdu_expanded_media_posts", []),
-  equalAnonMode: loadJSON("sdu_equal_anon_mode", true),
+  // 强匿名模式常开：头像统一、昵称在每帖随机化，不再给用户关闭的入口
+  equalAnonMode: true,
   textFirstMode: loadJSON("sdu_text_first_mode", true),
   announcements: [],
   unreadNoticeCount: 0,
@@ -1217,7 +1218,10 @@ function pseudoAnonId(seed) {
 }
 
 function displayAnonName(rawName, seed) {
-  if (!state.equalAnonMode) return String(rawName || "匿名同学");
+  // 后端已保证 rawName 按 (user_id, post_id) 生成（如"匿名松鼠"），跨帖不同。
+  // 前端直接透传，保留自然语感。异常兜底才回退到 seed 生成的 "洞友#编号"。
+  const name = String(rawName || "").trim();
+  if (name) return name;
   return `洞友#${pseudoAnonId(seed)}`;
 }
 
@@ -3144,10 +3148,10 @@ function showBlockSettings() {
           <input class="form-input" id="block-names" value="${escapeAttr((rules.names || []).join(","))}" placeholder="例如：孤独的狼">
         </div>
         <div style="margin-top:14px;padding:10px;border:1px dashed var(--border);border-radius:10px;background:#fff">
-          <label class="form-hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
-            <input type="checkbox" id="pref-equal-anon" ${state.equalAnonMode ? "checked" : ""}>
-            <span>平权匿名模式（统一显示为“洞友#编号”）</span>
-          </label>
+          <div class="form-hint" style="display:flex;gap:8px;align-items:center;color:var(--text2)">
+            <span>🔒</span>
+            <span>本站默认开启强匿名：同一用户在不同帖子下代号不同，头像统一。该设定不可关闭。</span>
+          </div>
           <label class="form-hint" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:8px">
             <input type="checkbox" id="pref-text-first" ${state.textFirstMode ? "checked" : ""}>
             <span>文本优先模式（时间流默认折叠图片）</span>
@@ -3181,10 +3185,11 @@ function showBlockSettings() {
       keywords: split(document.getElementById("block-keys").value),
       names: split(document.getElementById("block-names").value),
     };
-    state.equalAnonMode = !!document.getElementById("pref-equal-anon")?.checked;
+    // 强匿名强制开启，用户不可关闭
+    state.equalAnonMode = true;
     state.textFirstMode = !!document.getElementById("pref-text-first")?.checked;
     saveJSON("sdu_block_rules", state.blockRules);
-    saveJSON("sdu_equal_anon_mode", state.equalAnonMode);
+    saveJSON("sdu_equal_anon_mode", true);
     saveJSON("sdu_text_first_mode", state.textFirstMode);
     close();
     render();
